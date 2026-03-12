@@ -1,0 +1,308 @@
+﻿<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0b1020">
+  <title>Soru Havuzu | Soru Ekle</title>
+  <link rel="manifest" href="manifest.json">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,500;0,700;1,400&family=Instrument+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="container">
+    <nav class="top-nav">
+      <a href="index.html">Dashboard</a>
+      <a href="ekle.html">Soru Ekle</a>
+      <a href="liste.html">Liste</a>
+      <a href="rastgele.html">Rastgele</a>
+      <a href="veri.html">Veri</a>
+    </nav>
+
+    <section class="panel">
+      <header class="page-head">
+        <h1>Yeni Soru</h1>
+        <p class="small">Acik uclu veya coktan secmeli soru olustur, kategori ve zorluk bilgisi ekle.</p>
+      </header>
+      <form id="questionForm" class="grid">
+        <div class="grid two">
+          <div>
+            <label for="typeSelect">Tip</label>
+            <select name="type" id="typeSelect" required>
+              <option value="open-ended">Açık Uçlu</option>
+              <option value="multiple-choice">Çoktan Seçmeli</option>
+            </select>
+          </div>
+          <div>
+            <label for="difficulty">Zorluk</label>
+            <select id="difficulty" required>
+              <option value="easy">Kolay</option>
+              <option value="medium" selected>Orta</option>
+              <option value="hard">Zor</option>
+            </select>
+          </div>
+        </div>
+
+        <div>
+          <label for="text">Soru Metni</label>
+          <textarea id="text" required></textarea>
+        </div>
+
+        <div class="grid two">
+          <div>
+            <label for="category">Kategori</label>
+            <input id="category" list="categoryList" required>
+            <datalist id="categoryList"></datalist>
+          </div>
+          <div>
+            <label for="subcategory">Alt Kategori</label>
+            <input id="subcategory" list="subcategoryList" required>
+            <datalist id="subcategoryList"></datalist>
+          </div>
+        </div>
+
+        <div id="mcFields" class="panel hidden">
+          <h2>Coktan Secmeli Alanlar</h2>
+          <div id="optionsWrap" class="grid"></div>
+          <div class="actions">
+            <button type="button" id="addOption" class="secondary">Secenek Ekle</button>
+          </div>
+          <div>
+            <label for="mcAnswer">Dogru Cevap (or: A, B, C)</label>
+            <input id="mcAnswer" type="text" placeholder="Ornek: B">
+          </div>
+        </div>
+
+        <div id="openFields" class="panel">
+          <h2>Acik Uclu Cevap</h2>
+          <textarea id="openAnswer" placeholder="Beklenen cevap"></textarea>
+        </div>
+
+        <div>
+          <label for="image">Gorsel (opsiyonel)</label>
+          <input id="image" type="file" accept="image/*">
+          <div id="imageMeta" class="small"></div>
+          <img id="preview" class="thumb hidden" alt="Gorsel onizleme">
+        </div>
+
+        <div class="row">
+          <label><input id="favorite" type="checkbox"> Favori olarak isaretle</label>
+        </div>
+
+        <div class="actions">
+          <button type="submit">Kaydet</button>
+          <button type="button" id="resetBtn" class="secondary">Temizle</button>
+        </div>
+      </form>
+
+      <div id="status" class="status info">Hazir</div>
+    </section>
+  </div>
+
+  <script type="module">
+    import { bootPage, showMessage } from "./common.js";
+    import { initDB, createQuestion, getHierarchy } from "./db.js";
+
+    const form = document.getElementById("questionForm");
+    const typeEl = document.getElementById("typeSelect");
+    const difficultyEl = document.getElementById("difficulty");
+    const textEl = document.getElementById("text");
+    const categoryEl = document.getElementById("category");
+    const subcategoryEl = document.getElementById("subcategory");
+    const categoryList = document.getElementById("categoryList");
+    const subcategoryList = document.getElementById("subcategoryList");
+    const mcFields = document.getElementById("mcFields");
+    const openFields = document.getElementById("openFields");
+    const optionsWrap = document.getElementById("optionsWrap");
+    const addOptionBtn = document.getElementById("addOption");
+    const mcAnswerEl = document.getElementById("mcAnswer");
+    const openAnswerEl = document.getElementById("openAnswer");
+    const imageEl = document.getElementById("image");
+    const imageMeta = document.getElementById("imageMeta");
+    const preview = document.getElementById("preview");
+    const favoriteEl = document.getElementById("favorite");
+    const statusEl = document.getElementById("status");
+    const resetBtn = document.getElementById("resetBtn");
+
+    const MAX_OPTIONS = 8;
+    let selectedImageBase64 = null;
+
+    function isMultipleChoiceType(type) {
+      return type === "multiple-choice";
+    }
+
+    function optionInputHtml(index, value = "") {
+      return `
+        <div class="row">
+          <input type="text" data-option-index="${index}" value="${value}" placeholder="Secenek ${index + 1}">
+          <button type="button" data-remove-index="${index}" class="warn">Sil</button>
+        </div>
+      `;
+    }
+
+    function getOptionValues() {
+      return Array.from(optionsWrap.querySelectorAll("input[data-option-index]"))
+        .map((el) => el.value.trim())
+        .filter(Boolean);
+    }
+
+    function renderOptions(initialCount = 0) {
+      const count = Math.min(MAX_OPTIONS, Math.max(0, initialCount));
+      optionsWrap.innerHTML = "";
+      for (let i = 0; i < count; i += 1) {
+        optionsWrap.insertAdjacentHTML("beforeend", optionInputHtml(i));
+      }
+    }
+
+    function toggleTypeFields() {
+      const type = typeEl.value;
+      const mc = isMultipleChoiceType(type);
+      mcFields.classList.toggle("hidden", !mc);
+      openFields.classList.toggle("hidden", mc);
+    }
+
+    async function loadHierarchy() {
+      const hierarchy = await getHierarchy();
+      const categories = hierarchy.map((h) => h.category);
+      categoryList.innerHTML = categories.map((c) => `<option value="${c}"></option>`).join("");
+
+      const selected = categoryEl.value.trim();
+      const row = hierarchy.find((h) => h.category === selected);
+      const subs = row ? row.subcategories : [];
+      subcategoryList.innerHTML = subs.map((s) => `<option value="${s}"></option>`).join("");
+    }
+
+    function fileToBase64(file) {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result || ""));
+        reader.onerror = () => reject(reader.error || new Error("Gorsel base64 donusumu basarisiz."));
+        reader.readAsDataURL(file);
+      });
+    }
+
+    async function handleImagePreview(file) {
+      if (!file) {
+        selectedImageBase64 = null;
+        preview.classList.add("hidden");
+        preview.removeAttribute("src");
+        imageMeta.textContent = "";
+        return;
+      }
+
+      const base64 = await fileToBase64(file);
+      selectedImageBase64 = base64;
+      preview.src = base64;
+      preview.classList.remove("hidden");
+      imageMeta.textContent = `Dosya: ${Math.round(file.size / 1024)}KB`;
+    }
+
+    function buildPayload(type) {
+      const payload = {
+        type,
+        text: textEl.value.trim(),
+        category: categoryEl.value.trim(),
+        subcategory: subcategoryEl.value.trim(),
+        difficulty: difficultyEl.value,
+        isFavorite: favoriteEl.checked,
+        image: selectedImageBase64 || null
+      };
+
+      if (isMultipleChoiceType(type)) {
+        payload.options = getOptionValues();
+        payload.answer = mcAnswerEl.value.trim();
+      } else {
+        payload.options = [];
+        payload.answer = openAnswerEl.value.trim();
+      }
+
+      return payload;
+    }
+
+    function resetForm() {
+      selectedImageBase64 = null;
+      form.reset();
+      renderOptions(0);
+      toggleTypeFields();
+      preview.classList.add("hidden");
+      preview.removeAttribute("src");
+      imageMeta.textContent = "";
+      showMessage(statusEl, "Form temizlendi.", "info");
+    }
+
+    async function init() {
+      await bootPage();
+      await initDB();
+      renderOptions(0);
+      toggleTypeFields();
+      await loadHierarchy();
+      showMessage(statusEl, "Kayda hazir.", "success");
+    }
+
+    typeEl.addEventListener("change", toggleTypeFields);
+
+    categoryEl.addEventListener("input", async () => {
+      await loadHierarchy();
+    });
+
+    optionsWrap.addEventListener("click", (event) => {
+      const btn = event.target.closest("button[data-remove-index]");
+      if (!btn) return;
+      btn.closest(".row")?.remove();
+
+      const inputs = optionsWrap.querySelectorAll("input[data-option-index]");
+      inputs.forEach((input, i) => {
+        input.dataset.optionIndex = String(i);
+        input.placeholder = `Secenek ${i + 1}`;
+      });
+
+      const removeButtons = optionsWrap.querySelectorAll("button[data-remove-index]");
+      removeButtons.forEach((button, i) => {
+        button.dataset.removeIndex = String(i);
+      });
+    });
+
+    addOptionBtn.addEventListener("click", () => {
+      const current = optionsWrap.querySelectorAll("input[data-option-index]").length;
+      if (current >= MAX_OPTIONS) {
+        showMessage(statusEl, "Maksimum 8 secenek eklenebilir.", "error");
+        return;
+      }
+      optionsWrap.insertAdjacentHTML("beforeend", optionInputHtml(current));
+    });
+
+    imageEl.addEventListener("change", async () => {
+      try {
+        await handleImagePreview(imageEl.files?.[0] || null);
+      } catch (error) {
+        showMessage(statusEl, error.message || "Gorsel okunamadi.", "error");
+      }
+    });
+
+    resetBtn.addEventListener("click", resetForm);
+
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      showMessage(statusEl, "Kaydediliyor...", "info");
+
+      try {
+        const type = document.querySelector("#typeSelect").value;
+        console.log("TYPE:", type);
+        const payload = buildPayload(type);
+        const created = await createQuestion(payload);
+        showMessage(statusEl, `Kayit tamamlandi. ID: ${created.id}`, "success");
+
+        resetForm();
+        await loadHierarchy();
+      } catch (error) {
+        showMessage(statusEl, error.message || "Kayit basarisiz.", "error");
+      }
+    });
+
+    init().catch((error) => {
+      showMessage(statusEl, error.message || "Sayfa baslatilamadi.", "error");
+    });
+  </script>
+</body>
+</html>

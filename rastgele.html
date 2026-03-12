@@ -1,0 +1,179 @@
+﻿<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0b1020">
+  <title>Soru Havuzu | Rastgele</title>
+  <link rel="manifest" href="manifest.json">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,500;0,700;1,400&family=Instrument+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="container">
+    <nav class="top-nav">
+      <a href="index.html">Dashboard</a>
+      <a href="ekle.html">Soru Ekle</a>
+      <a href="liste.html">Liste</a>
+      <a href="rastgele.html">Rastgele</a>
+      <a href="veri.html">Veri</a>
+    </nav>
+
+    <section class="panel">
+      <header class="page-head">
+        <h1>Rastgele Soru</h1>
+        <p class="small">Filtreye gore rastgele soru cek ve cevabi kontrollu goruntule.</p>
+      </header>
+      <div class="grid three">
+        <div>
+          <label for="type">Tip</label>
+          <select id="type">
+            <option value="">Tum</option>
+            <option value="acikUclu">Acik Uclu</option>
+            <option value="coktanSecmeli">Coktan Secmeli</option>
+          </select>
+        </div>
+        <div>
+          <label for="difficulty">Zorluk</label>
+          <select id="difficulty">
+            <option value="">Tum</option>
+            <option value="easy">Kolay</option>
+            <option value="medium">Orta</option>
+            <option value="hard">Zor</option>
+          </select>
+        </div>
+        <div>
+          <label for="favorite">Favori</label>
+          <select id="favorite">
+            <option value="">Tum</option>
+            <option value="1">Sadece Favori</option>
+            <option value="0">Favori Olmayan</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="actions section-actions">
+        <button id="nextBtn">Rastgele Sec</button>
+        <button id="toggleAnswer" class="secondary">Cevabi Goster/Gizle</button>
+      </div>
+      <div id="status" class="status info">Hazir</div>
+    </section>
+
+    <section class="panel">
+      <h2>Sonuc</h2>
+      <article id="result" class="question-card">Henuz soru secilmedi.</article>
+    </section>
+  </div>
+
+  <script type="module">
+    import { bootPage, showMessage, escapeHTML } from "./common.js";
+    import { initDB, getRandomQuestion } from "./db.js";
+
+    const typeEl = document.getElementById("type");
+    const difficultyEl = document.getElementById("difficulty");
+    const favoriteEl = document.getElementById("favorite");
+    const nextBtn = document.getElementById("nextBtn");
+    const toggleBtn = document.getElementById("toggleAnswer");
+    const statusEl = document.getElementById("status");
+    const resultEl = document.getElementById("result");
+
+    let current = null;
+    let isAnswerVisible = false;
+    let currentImageUrl = "";
+
+    function normalizeType(type) {
+      if (type === "open-ended") return "acikUclu";
+      if (type === "multiple-choice") return "coktanSecmeli";
+      return String(type || "").trim();
+    }
+
+    function isMultipleChoiceType(type) {
+      return normalizeType(type) === "coktanSecmeli";
+    }
+
+    function clearCurrentImage() {
+      if (currentImageUrl.startsWith("blob:")) {
+        URL.revokeObjectURL(currentImageUrl);
+      }
+      currentImageUrl = "";
+    }
+
+    function filters() {
+      const f = {
+        type: typeEl.value || undefined,
+        difficulty: difficultyEl.value || undefined
+      };
+      if (favoriteEl.value === "1") f.isFavorite = true;
+      if (favoriteEl.value === "0") f.isFavorite = false;
+      return f;
+    }
+
+    function renderQuestion() {
+      clearCurrentImage();
+
+      if (!current) {
+        resultEl.textContent = "Filtreye uygun kayit bulunamadi.";
+        toggleBtn.textContent = "Cevabı Göster";
+        return;
+      }
+
+      const answerHtml = (() => {
+        if (!isAnswerVisible) return "";
+        return `<div><strong>Cevap:</strong> ${escapeHTML(String(current.answer || "-"))}</div>`;
+      })();
+
+      const options = Array.isArray(current.options) ? current.options : [];
+      const optionsHtml = isMultipleChoiceType(current.type) && options.length
+        ? `<ol class="options">${options.map((o) => `<li>${escapeHTML(o)}</li>`).join("")}</ol>`
+        : "";
+
+      let imageHtml = "";
+      if (typeof current.image === "string" && current.image.startsWith("data:image/")) {
+        imageHtml = `<img class="thumb" alt="Soru gorseli" src="${current.image}">`;
+      } else if (current.image?.blob) {
+        currentImageUrl = URL.createObjectURL(current.image.blob);
+        imageHtml = `<img class="thumb" alt="Soru gorseli" src="${currentImageUrl}">`;
+      }
+
+      resultEl.innerHTML = `
+        <div>${escapeHTML(current.text)}</div>
+        <div class="question-meta">${escapeHTML(current.category)} > ${escapeHTML(current.subcategory)} | ${escapeHTML(current.difficulty)} | ${escapeHTML(normalizeType(current.type))}</div>
+        ${optionsHtml}
+        ${answerHtml}
+        ${imageHtml}
+      `;
+      toggleBtn.textContent = isAnswerVisible ? "Cevabı Gizle" : "Cevabı Göster";
+    }
+
+    async function drawRandom() {
+      try {
+        current = await getRandomQuestion(filters());
+        isAnswerVisible = false;
+        renderQuestion();
+        showMessage(statusEl, current ? "Soru secildi." : "Uygun soru yok.", current ? "success" : "info");
+      } catch (error) {
+        showMessage(statusEl, error.message || "Rastgele secim basarisiz.", "error");
+      }
+    }
+
+    toggleBtn.addEventListener("click", () => {
+      isAnswerVisible = !isAnswerVisible;
+      renderQuestion();
+    });
+
+    nextBtn.addEventListener("click", drawRandom);
+
+    async function init() {
+      await bootPage();
+      await initDB();
+      await drawRandom();
+      window.addEventListener("beforeunload", clearCurrentImage);
+    }
+
+    init().catch((error) => {
+      showMessage(statusEl, error.message || "Sayfa baslatilamadi.", "error");
+    });
+  </script>
+</body>
+</html>

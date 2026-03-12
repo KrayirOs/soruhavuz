@@ -1,0 +1,103 @@
+﻿<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0b1020">
+  <title>Soru Havuzu | Dashboard</title>
+  <link rel="manifest" href="manifest.json">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,500;0,700;1,400&family=Instrument+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="container">
+    <nav class="top-nav">
+      <a href="index.html">Dashboard</a>
+      <a href="ekle.html">Soru Ekle</a>
+      <a href="liste.html">Liste</a>
+      <a href="rastgele.html">Rastgele</a>
+      <a href="veri.html">Veri</a>
+    </nav>
+
+    <section class="panel">
+      <header class="page-head">
+        <h1>Soru Havuzu</h1>
+        <p class="small">Offline-first PWA, IndexedDB tabanli yapi.</p>
+      </header>
+      <div class="kpi" id="kpi"></div>
+    </section>
+
+    <section class="panel">
+      <h2>Son Eklenenler</h2>
+      <div id="recent" class="list"></div>
+      <div id="status" class="status info">Yukleniyor...</div>
+    </section>
+  </div>
+
+  <script type="module">
+    import { bootPage, showMessage, escapeHTML, formatDate } from "./common.js";
+    import { initDB, getAllQuestions } from "./db.js";
+
+    const kpi = document.getElementById("kpi");
+    const recent = document.getElementById("recent");
+    const status = document.getElementById("status");
+
+    function normalizeType(type) {
+      if (type === "open-ended") return "acikUclu";
+      if (type === "multiple-choice") return "coktanSecmeli";
+      return String(type || "").trim();
+    }
+
+    function renderStats(items) {
+      const total = items.length;
+      const favorites = items.filter((q) => q.isFavorite).length;
+      const openEnded = items.filter((q) => normalizeType(q.type) === "acikUclu").length;
+      const multiple = items.filter((q) => normalizeType(q.type) === "coktanSecmeli").length;
+
+      kpi.innerHTML = `
+        <article class="kpi-item"><span>Toplam</span><strong>${total}</strong></article>
+        <article class="kpi-item"><span>Favori</span><strong>${favorites}</strong></article>
+        <article class="kpi-item"><span>Acik Uclu</span><strong>${openEnded}</strong></article>
+        <article class="kpi-item"><span>Coktan Secmeli</span><strong>${multiple}</strong></article>
+      `;
+    }
+
+    function renderRecent(items) {
+      if (!items.length) {
+        recent.innerHTML = "<div class='small'>Kayit yok.</div>";
+        return;
+      }
+
+      recent.innerHTML = items
+        .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+        .slice(0, 5)
+        .map((q) => `
+          <article class="question-card">
+            <div>${escapeHTML(q.text)}</div>
+            <div class="question-meta">
+              ${escapeHTML(q.category)} > ${escapeHTML(q.subcategory)} | ${escapeHTML(q.difficulty)} | ${q.isFavorite ? "favori" : "normal"}
+            </div>
+            <div class="small">${formatDate(q.createdAt)}</div>
+          </article>
+        `)
+        .join("");
+    }
+
+    async function init() {
+      await bootPage();
+      try {
+        await initDB();
+        const items = await getAllQuestions();
+        renderStats(items);
+        renderRecent(items);
+        showMessage(status, "Hazir", "success");
+      } catch (error) {
+        showMessage(status, error.message || "Veri okunamadi.", "error");
+      }
+    }
+
+    init();
+  </script>
+</body>
+</html>

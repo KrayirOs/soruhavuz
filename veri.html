@@ -1,0 +1,172 @@
+﻿<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0b1020">
+  <title>Soru Havuzu | Veri</title>
+  <link rel="manifest" href="manifest.json">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,500;0,700;1,400&family=Instrument+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="container">
+    <nav class="top-nav">
+      <a href="index.html">Dashboard</a>
+      <a href="ekle.html">Soru Ekle</a>
+      <a href="liste.html">Liste</a>
+      <a href="rastgele.html">Rastgele</a>
+      <a href="veri.html">Veri</a>
+    </nav>
+
+    <section class="panel">
+      <header class="page-head">
+        <h1>JSON Export / Import</h1>
+        <p class="small">Tum kayitlari disa aktar veya JSON dosyasindan toplu ice aktar.</p>
+      </header>
+      <div class="actions">
+        <button id="exportBtn">JSON Disa Aktar</button>
+      </div>
+      <hr>
+      <div class="grid two">
+        <div>
+          <label for="importFile">JSON Dosyasi</label>
+          <input id="importFile" type="file" accept="application/json">
+        </div>
+        <div>
+          <label><input id="wipeBeforeImport" type="checkbox"> Import oncesi tum kayitlari sil</label>
+        </div>
+      </div>
+      <div class="actions section-actions">
+        <button id="importBtn">JSON Ice Aktar</button>
+      </div>
+      <div id="status" class="status info">Hazir</div>
+    </section>
+  </div>
+
+  <script type="module">
+    import { bootPage, showMessage, downloadJSON, blobToDataURL, dataURLToBlob, safeFileName } from "./common.js";
+    import { initDB, getAllQuestions, bulkInsertQuestions, clearQuestions } from "./db.js";
+
+    const exportBtn = document.getElementById("exportBtn");
+    const importBtn = document.getElementById("importBtn");
+    const importFile = document.getElementById("importFile");
+    const wipeBeforeImport = document.getElementById("wipeBeforeImport");
+    const statusEl = document.getElementById("status");
+
+    async function buildExportPayload() {
+      const questions = await getAllQuestions();
+      const out = [];
+
+      for (const q of questions) {
+        const item = { ...q };
+        delete item.id;
+
+        if (item.image?.blob) {
+          item.image = {
+            ...item.image,
+            dataUrl: await blobToDataURL(item.image.blob)
+          };
+          delete item.image.blob;
+        }
+        out.push(item);
+      }
+
+      return {
+        app: "Soru Havuzu",
+        schemaVersion: 1,
+        exportedAt: new Date().toISOString(),
+        count: out.length,
+        questions: out
+      };
+    }
+
+    async function normalizeImportedQuestions(rawQuestions) {
+      if (!Array.isArray(rawQuestions)) {
+        throw new Error("questions alani dizi olmali.");
+      }
+
+      const normalized = [];
+      for (const raw of rawQuestions) {
+        const item = {
+          type: raw.type,
+          text: raw.text,
+          options: Array.isArray(raw.options) ? raw.options : [],
+          answer: raw.answer,
+          category: raw.category,
+          subcategory: raw.subcategory,
+          difficulty: raw.difficulty,
+          isFavorite: Boolean(raw.isFavorite),
+          image: null
+        };
+
+        if (raw.image?.dataUrl) {
+          const blob = await dataURLToBlob(raw.image.dataUrl);
+          item.image = {
+            blob,
+            mimeType: raw.image.mimeType || blob.type || "image/jpeg",
+            width: raw.image.width || null,
+            height: raw.image.height || null,
+            size: blob.size
+          };
+        }
+
+        normalized.push(item);
+      }
+
+      return normalized;
+    }
+
+    exportBtn.addEventListener("click", async () => {
+      showMessage(statusEl, "JSON hazirlaniyor...", "info");
+      try {
+        const payload = await buildExportPayload();
+        const stamp = new Date().toISOString().slice(0, 19).replaceAll(":", "-");
+        downloadJSON(`soru-havuzu-${safeFileName(stamp)}.json`, payload);
+        showMessage(statusEl, `Disa aktarim tamamlandi (${payload.count} kayit).`, "success");
+      } catch (error) {
+        showMessage(statusEl, error.message || "Disa aktarim basarisiz.", "error");
+      }
+    });
+
+    importBtn.addEventListener("click", async () => {
+      const file = importFile.files?.[0];
+      if (!file) {
+        showMessage(statusEl, "Lutfen bir JSON dosyasi secin.", "error");
+        return;
+      }
+
+      showMessage(statusEl, "Ice aktarim baslatildi...", "info");
+
+      try {
+        const text = await file.text();
+        const data = JSON.parse(text);
+        const questions = await normalizeImportedQuestions(data.questions);
+
+        if (wipeBeforeImport.checked) {
+          await clearQuestions();
+        }
+
+        const result = await bulkInsertQuestions(questions);
+        const message = `Ice aktarim tamamlandi. Basarili: ${result.inserted}, Hatali: ${result.failed}`;
+        showMessage(statusEl, result.failed ? `${message}. Detaylar console'da.` : message, result.failed ? "info" : "success");
+        if (result.failed) {
+          console.warn("Import hatalari:", result.errors);
+        }
+      } catch (error) {
+        showMessage(statusEl, error.message || "Ice aktarim basarisiz.", "error");
+      }
+    });
+
+    async function init() {
+      await bootPage();
+      await initDB();
+    }
+
+    init().catch((error) => {
+      showMessage(statusEl, error.message || "Sayfa baslatilamadi.", "error");
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,335 @@
+﻿<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0b1020">
+  <title>Soru Havuzu | Liste</title>
+  <link rel="manifest" href="manifest.json">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,500;0,700;1,400&family=Instrument+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="container">
+    <nav class="top-nav">
+      <a href="index.html">Dashboard</a>
+      <a href="ekle.html">Soru Ekle</a>
+      <a href="liste.html">Liste</a>
+      <a href="rastgele.html">Rastgele</a>
+      <a href="veri.html">Veri</a>
+    </nav>
+
+    <section class="panel">
+      <header class="page-head">
+        <h1>Soru Listesi ve Filtreleme</h1>
+        <p class="small">Kayitlari filtrele, favori durumunu degistir veya kayit sil.</p>
+      </header>
+      <div class="actions quick-actions">
+        <a href="veri.html">Veri Yonetimi</a>
+        <a href="veri.html#exportBtn">JSON Disa Aktar'a Git</a>
+      </div>
+      <div class="grid three">
+        <div>
+          <label for="fType">Tip</label>
+          <select id="fType">
+            <option value="">Tum</option>
+            <option value="acikUclu">Acik Uclu</option>
+            <option value="coktanSecmeli">Coktan Secmeli</option>
+          </select>
+        </div>
+        <div>
+          <label for="fCategory">Kategori</label>
+          <select id="fCategory"><option value="">Tum</option></select>
+        </div>
+        <div>
+          <label for="fSubcategory">Alt Kategori</label>
+          <select id="fSubcategory"><option value="">Tum</option></select>
+        </div>
+        <div>
+          <label for="fDifficulty">Zorluk</label>
+          <select id="fDifficulty">
+            <option value="">Tum</option>
+            <option value="easy">Kolay</option>
+            <option value="medium">Orta</option>
+            <option value="hard">Zor</option>
+          </select>
+        </div>
+        <div>
+          <label for="fFav">Favori</label>
+          <select id="fFav">
+            <option value="">Tum</option>
+            <option value="1">Sadece Favoriler</option>
+            <option value="0">Favori Olmayanlar</option>
+          </select>
+        </div>
+        <div>
+          <label for="fSort">Siralama</label>
+          <select id="fSort">
+            <option value="newest">Yeniden Eskiye</option>
+            <option value="oldest">Eskiden Yeniye</option>
+            <option value="difficulty">Zorluga Gore</option>
+          </select>
+        </div>
+      </div>
+      <div class="section-actions">
+        <label for="fSearch">Arama</label>
+        <input id="fSearch" placeholder="Soru metni / kategori">
+      </div>
+      <div class="actions section-actions">
+        <button id="applyFilters">Filtrele</button>
+        <button id="resetFilters" class="secondary">Sifirla</button>
+      </div>
+      <div id="status" class="status info">Hazir</div>
+    </section>
+
+    <section class="panel">
+      <h2>Kayitlar</h2>
+      <div id="count" class="small"></div>
+      <div id="list" class="list"></div>
+    </section>
+
+  </div>
+
+  <script type="module">
+    import { bootPage, showMessage, escapeHTML, formatDate } from "./common.js";
+    import { initDB, queryQuestions, getHierarchy, deleteQuestion, toggleFavorite } from "./db.js";
+
+    const fType = document.getElementById("fType");
+    const fCategory = document.getElementById("fCategory");
+    const fSubcategory = document.getElementById("fSubcategory");
+    const fDifficulty = document.getElementById("fDifficulty");
+    const fFav = document.getElementById("fFav");
+    const fSort = document.getElementById("fSort");
+    const fSearch = document.getElementById("fSearch");
+    const applyBtn = document.getElementById("applyFilters");
+    const resetBtn = document.getElementById("resetFilters");
+    const statusEl = document.getElementById("status");
+    const countEl = document.getElementById("count");
+    const listEl = document.getElementById("list");
+
+    let cachedHierarchy = [];
+    const answerVisibility = new Map();
+    const imageExpanded = new Map();
+
+    function normalizeType(type) {
+      if (type === "open-ended") return "acikUclu";
+      if (type === "multiple-choice") return "coktanSecmeli";
+      return String(type || "").trim();
+    }
+
+    function isMultipleChoiceType(type) {
+      return normalizeType(type) === "coktanSecmeli";
+    }
+
+    function getFilters() {
+      const filters = {
+        type: fType.value || undefined,
+        category: fCategory.value || undefined,
+        subcategory: fSubcategory.value || undefined,
+        difficulty: fDifficulty.value || undefined,
+        sort: fSort.value,
+        search: fSearch.value.trim() || undefined
+      };
+
+      if (fFav.value === "1") filters.isFavorite = true;
+      if (fFav.value === "0") filters.isFavorite = false;
+
+      return filters;
+    }
+
+    function cleanupListObjectUrls() {
+      listEl.querySelectorAll("img[data-object-url]").forEach((img) => {
+        if (img.src.startsWith("blob:")) URL.revokeObjectURL(img.src);
+      });
+    }
+
+    function renderList(items) {
+      cleanupListObjectUrls();
+      countEl.textContent = `${items.length} kayit`;
+
+      if (!items.length) {
+        listEl.innerHTML = "<div class='small'>Filtreye uygun kayit bulunamadi.</div>";
+        return;
+      }
+
+      listEl.innerHTML = items.map((q) => {
+        const answerText = String(q.answer || "").trim();
+        const options = Array.isArray(q.options) ? q.options : [];
+        const answerLower = answerText.toLowerCase();
+
+        const optionsHtml = isMultipleChoiceType(q.type) && options.length
+          ? `<ol class="options">${options.map((o, i) => {
+              const isIndexMatch = Number.isInteger(q.answer) && i === q.answer;
+              const isLetterMatch = answerLower === String.fromCharCode(65 + i).toLowerCase();
+              const isNumberMatch = answerLower === String(i + 1);
+              const isTextMatch = answerLower && answerLower === String(o).trim().toLowerCase();
+              const isCorrect = isIndexMatch || isLetterMatch || isNumberMatch || isTextMatch;
+              return `<li>${escapeHTML(o)} ${isCorrect ? "<strong>(dogru)</strong>" : ""}</li>`;
+            }).join("")}</ol>`
+          : "";
+
+        const isAnswerVisible = Boolean(answerVisibility.get(q.id));
+        const answerHtml = isAnswerVisible
+          ? `<div class="small answer-reveal">Dogru cevap: ${escapeHTML(answerText || "-")}</div>`
+          : "";
+        const answerToggleText = isAnswerVisible ? "Cevabı Gizle" : "Cevabı Göster";
+
+        let thumbHtml = "";
+        let expandedImageHtml = "";
+        const isImageExpanded = Boolean(imageExpanded.get(q.id));
+
+        if (typeof q.image === "string" && q.image.startsWith("data:image/")) {
+          thumbHtml = `<img class="thumb" src="${q.image}" alt="Soru gorseli" data-enlarge="1">`;
+          if (isImageExpanded) {
+            expandedImageHtml = `
+              <div class="inline-image-viewer">
+                <button type="button" class="secondary inline-image-close" data-action="close-image">Kapat</button>
+                <img class="inline-image-full" src="${q.image}" alt="Soru gorseli buyuk gorunum">
+              </div>
+            `;
+          }
+        } else if (q.image?.blob) {
+          const src = URL.createObjectURL(q.image.blob);
+          thumbHtml = `<img class="thumb" src="${src}" alt="Soru gorseli" data-object-url="1" data-enlarge="1">`;
+          if (isImageExpanded) {
+            expandedImageHtml = `
+              <div class="inline-image-viewer">
+                <button type="button" class="secondary inline-image-close" data-action="close-image">Kapat</button>
+                <img class="inline-image-full" src="${src}" alt="Soru gorseli buyuk gorunum" data-object-url="1">
+              </div>
+            `;
+          }
+        }
+
+        return `
+          <article class="question-card" data-id="${q.id}">
+            <div>${escapeHTML(q.text)}</div>
+            <div class="question-meta">
+              <span class="tag">${escapeHTML(normalizeType(q.type))}</span>
+              <span class="tag">${escapeHTML(q.category)} > ${escapeHTML(q.subcategory)}</span>
+              <span class="tag">${escapeHTML(q.difficulty)}</span>
+              <span class="tag">${q.isFavorite ? "favori" : "normal"}</span>
+            </div>
+            ${optionsHtml}
+            ${answerHtml}
+            ${thumbHtml}
+            ${expandedImageHtml}
+            <div class="small">${formatDate(q.createdAt)}</div>
+            <div class="actions section-actions">
+              <button data-action="toggle-answer" class="secondary">${answerToggleText}</button>
+              <button data-action="favorite">${q.isFavorite ? "Favoriden Cikar" : "Favoriye Ekle"}</button>
+              <button data-action="delete" class="warn">Sil</button>
+            </div>
+          </article>
+        `;
+      }).join("");
+    }
+
+    async function loadFilterData() {
+      cachedHierarchy = await getHierarchy();
+      fCategory.innerHTML = '<option value="">Tum</option>' + cachedHierarchy
+        .map((h) => `<option value="${h.category}">${h.category}</option>`)
+        .join("");
+      syncSubcategories();
+    }
+
+    function syncSubcategories() {
+      const selected = fCategory.value;
+      const row = cachedHierarchy.find((h) => h.category === selected);
+      const options = row ? row.subcategories : [];
+      fSubcategory.innerHTML = '<option value="">Tum</option>' + options.map((s) => `<option value="${s}">${s}</option>`).join("");
+    }
+
+    async function refresh() {
+      try {
+        const items = await queryQuestions(getFilters());
+        renderList(items);
+        showMessage(statusEl, "Liste guncellendi.", "success");
+      } catch (error) {
+        showMessage(statusEl, error.message || "Liste yuklenemedi.", "error");
+      }
+    }
+
+    applyBtn.addEventListener("click", refresh);
+    resetBtn.addEventListener("click", async () => {
+      fType.value = "";
+      fCategory.value = "";
+      fSubcategory.value = "";
+      fDifficulty.value = "";
+      fFav.value = "";
+      fSort.value = "newest";
+      fSearch.value = "";
+      syncSubcategories();
+      await refresh();
+    });
+
+    fCategory.addEventListener("change", syncSubcategories);
+
+    listEl.addEventListener("click", async (event) => {
+      const image = event.target.closest("img.thumb[data-enlarge='1']");
+      if (image) {
+        const card = image.closest("article[data-id]");
+        if (!card) return;
+        const id = Number(card.dataset.id);
+        imageExpanded.set(id, true);
+        const items = await queryQuestions(getFilters());
+        renderList(items);
+        return;
+      }
+
+      const btn = event.target.closest("button[data-action]");
+      if (!btn) return;
+
+      const card = btn.closest("article[data-id]");
+      if (!card) return;
+
+      const id = Number(card.dataset.id);
+      const action = btn.dataset.action;
+
+      try {
+        if (action === "toggle-answer") {
+          const current = Boolean(answerVisibility.get(id));
+          answerVisibility.set(id, !current);
+          const items = await queryQuestions(getFilters());
+          renderList(items);
+          return;
+        } else if (action === "close-image") {
+          imageExpanded.set(id, false);
+          const items = await queryQuestions(getFilters());
+          renderList(items);
+          return;
+        } else if (action === "favorite") {
+          await toggleFavorite(id);
+        } else if (action === "delete") {
+          const ok = confirm("Bu kayit silinecek. Devam edilsin mi?");
+          if (!ok) return;
+          await deleteQuestion(id);
+        }
+        await loadFilterData();
+        await refresh();
+      } catch (error) {
+        showMessage(statusEl, error.message || "Islem basarisiz.", "error");
+      }
+    });
+
+    async function init() {
+      await bootPage();
+      await initDB();
+      await loadFilterData();
+      await refresh();
+      window.addEventListener("beforeunload", cleanupListObjectUrls);
+    }
+    document.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") {
+        imageExpanded.clear();
+        void refresh();
+      }
+    });
+
+    init().catch((error) => {
+      showMessage(statusEl, error.message || "Sayfa baslatilamadi.", "error");
+    });
+  </script>
+</body>
+</html>
