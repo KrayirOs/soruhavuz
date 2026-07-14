@@ -75,7 +75,7 @@
       </div>
       <div class="section-actions">
         <label for="fSearch">Arama</label>
-        <input id="fSearch" placeholder="Soru metni / kategori">
+        <input id="fSearch" type="search" enterkeyhint="search" placeholder="Soru metni / kategori">
       </div>
       <div class="actions section-actions">
         <button id="applyFilters">Filtrele</button>
@@ -254,6 +254,12 @@
     }
 
     applyBtn.addEventListener("click", refresh);
+    fSearch.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        refresh();
+      }
+    });
     resetBtn.addEventListener("click", async () => {
       fType.value = "";
       fCategory.value = "";
