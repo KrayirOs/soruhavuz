@@ -1,4 +1,4 @@
-﻿<!doctype html>
+<!doctype html>
 <html lang="tr">
 <head>
   <meta charset="utf-8">
@@ -14,6 +14,7 @@
   <div class="container">
     <nav class="top-nav">
       <a href="index.html">Dashboard</a>
+      <a href="tekrar.html">Tekrar</a>
       <a href="liste.html">Liste</a>
       <a href="ekle.html">Soru Ekle</a>
       <a href="rastgele.html">Rastgele</a>
@@ -81,7 +82,12 @@
 
         <div>
           <label for="image">Gorsel (opsiyonel)</label>
-          <input id="image" type="file" accept="image/*">
+          <div class="actions" style="margin-top:0;">
+            <button type="button" id="cameraBtn" class="secondary">📷 Fotoğraf Çek</button>
+            <button type="button" id="galleryBtn" class="secondary">🖼 Galeriden Seç</button>
+          </div>
+          <input id="cameraInput" type="file" accept="image/*" capture="environment" class="hidden">
+          <input id="image" type="file" accept="image/*" class="hidden">
           <div id="imageMeta" class="small"></div>
           <img id="preview" class="thumb hidden" alt="Gorsel onizleme">
         </div>
@@ -103,6 +109,7 @@
   <script type="module">
     import { bootPage, showMessage } from "./common.js";
     import { initDB, createQuestion, getHierarchy } from "./db.js";
+    import { compressImage } from "./image-utils.js";
 
     const form = document.getElementById("questionForm");
     const typeEl = document.getElementById("typeSelect");
@@ -119,6 +126,9 @@
     const mcAnswerEl = document.getElementById("mcAnswer");
     const openAnswerEl = document.getElementById("openAnswer");
     const imageEl = document.getElementById("image");
+    const cameraInput = document.getElementById("cameraInput");
+    const cameraBtn = document.getElementById("cameraBtn");
+    const galleryBtn = document.getElementById("galleryBtn");
     const imageMeta = document.getElementById("imageMeta");
     const preview = document.getElementById("preview");
     const favoriteEl = document.getElementById("favorite");
@@ -126,7 +136,8 @@
     const resetBtn = document.getElementById("resetBtn");
 
     const MAX_OPTIONS = 8;
-    let selectedImageBase64 = null;
+    let selectedImage = null;
+    let previewObjectUrl = "";
 
     function isMultipleChoiceType(type) {
       return type === "multiple-choice";
@@ -173,29 +184,38 @@
       subcategoryList.innerHTML = subs.map((s) => `<option value="${s}"></option>`).join("");
     }
 
-    function fileToBase64(file) {
-      return new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(String(reader.result || ""));
-        reader.onerror = () => reject(reader.error || new Error("Gorsel base64 donusumu basarisiz."));
-        reader.readAsDataURL(file);
-      });
+    function clearPreviewUrl() {
+      if (previewObjectUrl) {
+        URL.revokeObjectURL(previewObjectUrl);
+        previewObjectUrl = "";
+      }
     }
 
     async function handleImagePreview(file) {
+      clearPreviewUrl();
+
       if (!file) {
-        selectedImageBase64 = null;
+        selectedImage = null;
         preview.classList.add("hidden");
         preview.removeAttribute("src");
         imageMeta.textContent = "";
         return;
       }
 
-      const base64 = await fileToBase64(file);
-      selectedImageBase64 = base64;
-      preview.src = base64;
+      const { blob, meta } = await compressImage(file, { maxWidth: 1280, quality: 0.7 });
+      selectedImage = {
+        blob,
+        mimeType: meta.mimeType,
+        width: meta.width,
+        height: meta.height,
+        size: blob.size
+      };
+
+      previewObjectUrl = URL.createObjectURL(blob);
+      preview.src = previewObjectUrl;
       preview.classList.remove("hidden");
-      imageMeta.textContent = `Dosya: ${Math.round(file.size / 1024)}KB`;
+      const savedPct = meta.originalSize ? Math.round(100 - (meta.compressedSize / meta.originalSize) * 100) : 0;
+      imageMeta.textContent = `Orijinal: ${Math.round(meta.originalSize / 1024)}KB -> Sikistirilmis: ${Math.round(meta.compressedSize / 1024)}KB (%${Math.max(savedPct, 0)} kucultme)`;
     }
 
     function buildPayload(type) {
@@ -206,7 +226,7 @@
         subcategory: subcategoryEl.value.trim(),
         difficulty: difficultyEl.value,
         isFavorite: favoriteEl.checked,
-        image: selectedImageBase64 || null
+        image: selectedImage || null
       };
 
       if (isMultipleChoiceType(type)) {
@@ -221,7 +241,8 @@
     }
 
     function resetForm() {
-      selectedImageBase64 = null;
+      clearPreviewUrl();
+      selectedImage = null;
       form.reset();
       renderOptions(0);
       toggleTypeFields();
@@ -272,13 +293,19 @@
       optionsWrap.insertAdjacentHTML("beforeend", optionInputHtml(current));
     });
 
-    imageEl.addEventListener("change", async () => {
+    cameraBtn.addEventListener("click", () => cameraInput.click());
+    galleryBtn.addEventListener("click", () => imageEl.click());
+
+    async function onImageSelected(file) {
       try {
-        await handleImagePreview(imageEl.files?.[0] || null);
+        await handleImagePreview(file || null);
       } catch (error) {
         showMessage(statusEl, error.message || "Gorsel okunamadi.", "error");
       }
-    });
+    }
+
+    imageEl.addEventListener("change", () => onImageSelected(imageEl.files?.[0]));
+    cameraInput.addEventListener("change", () => onImageSelected(cameraInput.files?.[0]));
 
     resetBtn.addEventListener("click", resetForm);
 
@@ -288,7 +315,6 @@
 
       try {
         const type = document.querySelector("#typeSelect").value;
-        console.log("TYPE:", type);
         const payload = buildPayload(type);
         const created = await createQuestion(payload);
         showMessage(statusEl, `Kayit tamamlandi. ID: ${created.id}`, "success");
@@ -303,7 +329,7 @@
     init().catch((error) => {
       showMessage(statusEl, error.message || "Sayfa baslatilamadi.", "error");
     });
+    window.addEventListener("beforeunload", clearPreviewUrl);
   </script>
 </body>
 </html>
-

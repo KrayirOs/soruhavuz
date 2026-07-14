@@ -1,0 +1,183 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0b1020">
+  <title>Soru Havuzu | Tekrar</title>
+  <link rel="manifest" href="manifest.json">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,500;0,700;1,400&family=Instrument+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="container">
+    <nav class="top-nav">
+      <a href="index.html">Dashboard</a>
+      <a href="tekrar.html">Tekrar</a>
+      <a href="liste.html">Liste</a>
+      <a href="ekle.html">Soru Ekle</a>
+      <a href="rastgele.html">Rastgele</a>
+      <a href="veri.html">Veri</a>
+    </nav>
+
+    <section class="panel">
+      <header class="page-head">
+        <h1>Tekrar Zamanı</h1>
+        <p class="small">Bugün ve daha önce tarihi geçmiş sorular sırayla önüne geliyor. Doğru bildiysen aralık uzar, yanlışsa baştan başlar.</p>
+      </header>
+      <div class="kpi" id="kpi"></div>
+    </section>
+
+    <section class="panel">
+      <div id="status" class="status info">Yükleniyor...</div>
+      <div id="reviewArea"></div>
+    </section>
+  </div>
+
+  <script type="module">
+    import { bootPage, showMessage, escapeHTML } from "./common.js";
+    import { initDB, getDueQuestions, recordReview, SRS_INTERVALS, localDateStr } from "./db.js";
+
+    const kpi = document.getElementById("kpi");
+    const statusEl = document.getElementById("status");
+    const reviewArea = document.getElementById("reviewArea");
+
+    let queue = [];
+    let currentIndex = 0;
+    let isAnswerVisible = false;
+    let currentImageUrl = "";
+    let sessionDone = 0;
+    let sessionTotal = 0;
+
+    function normalizeType(type) {
+      if (type === "open-ended") return "Açık Uçlu";
+      if (type === "multiple-choice") return "Çoktan Seçmeli";
+      return String(type || "").trim();
+    }
+
+    function clearCurrentImage() {
+      if (currentImageUrl.startsWith("blob:")) {
+        URL.revokeObjectURL(currentImageUrl);
+      }
+      currentImageUrl = "";
+    }
+
+    function stageDotsHtml(stage) {
+      return `<div class="stage-dots">${SRS_INTERVALS.map((_, i) =>
+        `<span class="${i <= stage ? "filled" : ""}"></span>`
+      ).join("")}</div>`;
+    }
+
+    function renderKPI() {
+      const remaining = queue.length - currentIndex;
+      kpi.innerHTML = `
+        <article class="kpi-item"><span>Bugün Bekleyen</span><strong>${sessionTotal}</strong></article>
+        <article class="kpi-item"><span>Kalan</span><strong>${Math.max(remaining, 0)}</strong></article>
+        <article class="kpi-item"><span>Tamamlanan</span><strong>${sessionDone}</strong></article>
+      `;
+    }
+
+    function renderCurrent() {
+      clearCurrentImage();
+      const q = queue[currentIndex];
+
+      if (!q) {
+        reviewArea.innerHTML = sessionTotal === 0
+          ? `<article class="question-card"><div>Bugün tekrar edilecek soru yok. Harika gidiyorsun! 🎉</div><div class="small" style="margin-top:8px;">Yanlış çözdüğün yeni sorular "Soru Ekle" sayfasından deftere düşer ve yarın burada karşına çıkar.</div></article>`
+          : `<article class="question-card"><div>Bu turdaki tüm sorular bitti. Yarın tekrar buraya bak. 👏</div></article>`;
+        showMessage(statusEl, "Hazır", "success");
+        return;
+      }
+
+      isAnswerVisible = false;
+      const answerText = String(q.answer || "").trim();
+      const options = Array.isArray(q.options) ? q.options : [];
+      const optionsHtml = q.type === "multiple-choice" && options.length
+        ? `<ol class="options">${options.map((o) => `<li>${escapeHTML(o)}</li>`).join("")}</ol>`
+        : "";
+
+      let imageHtml = "";
+      if (typeof q.image === "string" && q.image.startsWith("data:image/")) {
+        imageHtml = `<img class="thumb" alt="Soru görseli" src="${q.image}">`;
+      } else if (q.image?.blob) {
+        currentImageUrl = URL.createObjectURL(q.image.blob);
+        imageHtml = `<img class="thumb" alt="Soru görseli" src="${currentImageUrl}">`;
+      }
+
+      const overdueDays = Math.max(0, Math.round((new Date(localDateStr()) - new Date(q.nextReviewDate)) / 86400000));
+
+      reviewArea.innerHTML = `
+        <article class="question-card">
+          <div class="question-meta">
+            <span class="tag">${escapeHTML(q.category)} &gt; ${escapeHTML(q.subcategory)}</span>
+            <span class="tag">${escapeHTML(q.difficulty)}</span>
+            <span class="tag">${normalizeType(q.type)}</span>
+            ${overdueDays > 0 ? `<span class="tag">${overdueDays} gün gecikti</span>` : ""}
+          </div>
+          <div>${escapeHTML(q.text)}</div>
+          ${optionsHtml}
+          ${imageHtml}
+          ${stageDotsHtml(q.srsStage ?? 0)}
+          <div class="small" style="margin-top:6px;">${(q.reviewCount ?? 0)}. tekrar &middot; şu anki aralık: ${SRS_INTERVALS[q.srsStage ?? 0]} gün</div>
+          <div id="answerSlot"></div>
+          <div class="actions section-actions">
+            <button type="button" id="toggleAnswer" class="secondary">Cevabı Göster</button>
+          </div>
+          <div class="actions section-actions">
+            <button type="button" id="wrongBtn" class="warn">✗ Yine yanlış</button>
+            <button type="button" id="partialBtn" class="secondary">≈ Zorlandım ama doğru</button>
+            <button type="button" id="correctBtn" class="correct">✓ Doğru bildim</button>
+          </div>
+        </article>
+      `;
+
+      document.getElementById("toggleAnswer").addEventListener("click", () => {
+        isAnswerVisible = !isAnswerVisible;
+        const slot = document.getElementById("answerSlot");
+        slot.innerHTML = isAnswerVisible
+          ? `<div class="small answer-reveal">Doğru cevap: ${escapeHTML(answerText || "-")}</div>`
+          : "";
+        document.getElementById("toggleAnswer").textContent = isAnswerVisible ? "Cevabı Gizle" : "Cevabı Göster";
+      });
+
+      document.getElementById("correctBtn").addEventListener("click", () => submitResult(q.id, "correct"));
+      document.getElementById("partialBtn").addEventListener("click", () => submitResult(q.id, "partial"));
+      document.getElementById("wrongBtn").addEventListener("click", () => submitResult(q.id, "wrong"));
+
+      renderKPI();
+    }
+
+    async function submitResult(id, result) {
+      try {
+        await recordReview(id, result);
+        sessionDone += 1;
+        currentIndex += 1;
+        renderCurrent();
+        const feedback = { correct: "Kaydedildi, aralık uzatıldı.", partial: "Kaydedildi, aynı aralıktan tekrar gelecek.", wrong: "Kaydedildi, yarın tekrar karşına çıkacak." };
+        showMessage(statusEl, feedback[result], "success");
+      } catch (error) {
+        showMessage(statusEl, error.message || "Kayıt başarısız.", "error");
+      }
+    }
+
+    async function init() {
+      await bootPage();
+      try {
+        await initDB();
+        queue = await getDueQuestions();
+        sessionTotal = queue.length;
+        currentIndex = 0;
+        sessionDone = 0;
+        renderKPI();
+        renderCurrent();
+      } catch (error) {
+        showMessage(statusEl, error.message || "Tekrar listesi yüklenemedi.", "error");
+      }
+    }
+
+    init();
+    window.addEventListener("beforeunload", clearCurrentImage);
+  </script>
+</body>
+</html>

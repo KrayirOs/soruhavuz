@@ -1,4 +1,4 @@
-﻿<!doctype html>
+<!doctype html>
 <html lang="tr">
 <head>
   <meta charset="utf-8">
@@ -14,6 +14,7 @@
   <div class="container">
     <nav class="top-nav">
       <a href="index.html">Dashboard</a>
+      <a href="tekrar.html">Tekrar</a>
       <a href="liste.html">Liste</a>
       <a href="ekle.html">Soru Ekle</a>
       <a href="rastgele.html">Rastgele</a>
@@ -124,7 +125,7 @@
         const payload = await buildExportPayload();
         const stamp = new Date().toISOString().slice(0, 19).replaceAll(":", "-");
         downloadJSON(`soru-havuzu-${safeFileName(stamp)}.json`, payload);
-        showMessage(statusEl, `Disa aktarim tamamlandi (${payload.count} kayit).`, "success");
+        showMessage(statusEl, `Disa aktarim tamamlandi (${payload.count} kayit).", "success");
       } catch (error) {
         showMessage(statusEl, error.message || "Disa aktarim basarisiz.", "error");
       }
@@ -170,4 +171,3 @@
   </script>
 </body>
 </html>
-
