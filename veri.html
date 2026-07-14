@@ -125,7 +125,7 @@
         const payload = await buildExportPayload();
         const stamp = new Date().toISOString().slice(0, 19).replaceAll(":", "-");
         downloadJSON(`soru-havuzu-${safeFileName(stamp)}.json`, payload);
-        showMessage(statusEl, `Disa aktarim tamamlandi (${payload.count} kayit).", "success");
+        showMessage(statusEl, `Disa aktarim tamamlandi (${payload.count} kayit).`, "success");
       } catch (error) {
         showMessage(statusEl, error.message || "Disa aktarim basarisiz.", "error");
       }
