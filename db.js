@@ -23,7 +23,7 @@ export function addDaysToDateStr(dateStr, days) {
 function defaultSRS() {
   return {
     srsStage: 0,
-    nextReviewDate: addDaysToDateStr(localDateStr(), SRS_INTERVALS[0]),
+    nextReviewDate: localDateStr(),
     reviewCount: 0,
     lastReviewedAt: null,
     lastResult: null
