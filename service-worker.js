@@ -1,7 +1,8 @@
-﻿const CACHE_NAME = "soru-havuzu-v1";
+const CACHE_NAME = "soru-havuzu-v2";
 const CORE_ASSETS = [
   "./",
   "./index.html",
+  "./tekrar.html",
   "./ekle.html",
   "./liste.html",
   "./rastgele.html",

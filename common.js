@@ -1,4 +1,4 @@
-﻿export function $(selector, root = document) {
+export function $(selector, root = document) {
   return root.querySelector(selector);
 }
 

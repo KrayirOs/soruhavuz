@@ -1,6 +1,34 @@
-﻿const DB_NAME = "soru_havuzu_db";
-const DB_VERSION = 1;
+const DB_NAME = "soru_havuzu_db";
+const DB_VERSION = 2;
 const STORE_NAME = "questions";
+
+// Tekrar (spaced repetition) icin gun cinsinden asamalar.
+// Asama 0: yarin tekrar. Her dogru cevapta bir sonraki asamaya gecilir,
+// her yanlista asama 0'a doner.
+export const SRS_INTERVALS = [1, 2, 4, 7, 14, 30, 60];
+
+export function localDateStr(date = new Date()) {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
+export function addDaysToDateStr(dateStr, days) {
+  const d = new Date(`${dateStr}T00:00:00`);
+  d.setDate(d.getDate() + days);
+  return localDateStr(d);
+}
+
+function defaultSRS() {
+  return {
+    srsStage: 0,
+    nextReviewDate: addDaysToDateStr(localDateStr(), SRS_INTERVALS[0]),
+    reviewCount: 0,
+    lastReviewedAt: null,
+    lastResult: null
+  };
+}
 
 let dbPromise;
 
@@ -76,7 +104,12 @@ function validateQuestionInput(input) {
     subcategory,
     difficulty,
     isFavorite,
-    image: input.image || null
+    image: input.image || null,
+    srsStage: Number.isInteger(input.srsStage) ? input.srsStage : undefined,
+    nextReviewDate: typeof input.nextReviewDate === "string" ? input.nextReviewDate : undefined,
+    reviewCount: Number.isInteger(input.reviewCount) ? input.reviewCount : undefined,
+    lastReviewedAt: input.lastReviewedAt || undefined,
+    lastResult: input.lastResult || undefined
   };
 
   const answerText = String(input.answer ?? "").trim();
@@ -107,8 +140,11 @@ async function openDB() {
 
     req.onupgradeneeded = (event) => {
       const db = event.target.result;
+      const tx = event.target.transaction;
+      let store;
+
       if (!db.objectStoreNames.contains(STORE_NAME)) {
-        const store = db.createObjectStore(STORE_NAME, { keyPath: "id", autoIncrement: true });
+        store = db.createObjectStore(STORE_NAME, { keyPath: "id", autoIncrement: true });
         store.createIndex("type", "type", { unique: false });
         store.createIndex("category", "category", { unique: false });
         store.createIndex("subcategory", "subcategory", { unique: false });
@@ -116,6 +152,31 @@ async function openDB() {
         store.createIndex("isFavorite", "isFavorite", { unique: false });
         store.createIndex("createdAt", "createdAt", { unique: false });
         store.createIndex("category_subcategory", ["category", "subcategory"], { unique: false });
+      } else {
+        store = tx.objectStore(STORE_NAME);
+      }
+
+      if (event.oldVersion < 2) {
+        if (!store.indexNames.contains("nextReviewDate")) {
+          store.createIndex("nextReviewDate", "nextReviewDate", { unique: false });
+        }
+        // Var olan kayitlara varsayilan SRS alanlarini isle (geriye donuk uyumluluk).
+        store.openCursor().onsuccess = (cursorEvent) => {
+          const cursor = cursorEvent.target.result;
+          if (!cursor) return;
+          const record = cursor.value;
+          if (record.nextReviewDate === undefined) {
+            cursor.update({
+              ...record,
+              srsStage: record.srsStage ?? 0,
+              nextReviewDate: record.nextReviewDate ?? defaultSRS().nextReviewDate,
+              reviewCount: record.reviewCount ?? 0,
+              lastReviewedAt: record.lastReviewedAt ?? null,
+              lastResult: record.lastResult ?? null
+            });
+          }
+          cursor.continue();
+        };
       }
     };
 
@@ -146,6 +207,25 @@ async function withStore(mode, run) {
   }
 }
 
+function withSRSDefaults(question, existing = null) {
+  const base = existing ? {
+    srsStage: existing.srsStage ?? 0,
+    nextReviewDate: existing.nextReviewDate ?? defaultSRS().nextReviewDate,
+    reviewCount: existing.reviewCount ?? 0,
+    lastReviewedAt: existing.lastReviewedAt ?? null,
+    lastResult: existing.lastResult ?? null
+  } : defaultSRS();
+
+  return {
+    ...question,
+    srsStage: question.srsStage ?? base.srsStage,
+    nextReviewDate: question.nextReviewDate ?? base.nextReviewDate,
+    reviewCount: question.reviewCount ?? base.reviewCount,
+    lastReviewedAt: question.lastReviewedAt ?? base.lastReviewedAt,
+    lastResult: question.lastResult ?? base.lastResult
+  };
+}
+
 function withTimestamps(question, existing = null) {
   const now = new Date().toISOString();
   return {
@@ -160,7 +240,7 @@ export async function initDB() {
 }
 
 export async function createQuestion(payload) {
-  const normalized = withTimestamps(validateQuestionInput(payload));
+  const normalized = withTimestamps(withSRSDefaults(validateQuestionInput(payload)));
 
   return withStore("readwrite", async (store) => {
     const id = await reqToPromise(store.add(normalized));
@@ -180,7 +260,7 @@ export async function updateQuestion(id, patch) {
       throw new DBError(`Question ${numericId} not found.`);
     }
 
-    const merged = validateQuestionInput({ ...current, ...patch });
+    const merged = withSRSDefaults(validateQuestionInput({ ...current, ...patch }), current);
     const next = { ...withTimestamps(merged, current), id: numericId };
     await reqToPromise(store.put(next));
     return next;
@@ -278,6 +358,51 @@ export async function getRandomQuestion(filters = {}) {
   return list[index];
 }
 
+export async function getDueQuestions(referenceDate = localDateStr()) {
+  const all = await getAllQuestions();
+  return all
+    .filter((q) => (q.nextReviewDate || defaultSRS().nextReviewDate) <= referenceDate)
+    .sort((a, b) => (a.nextReviewDate || "").localeCompare(b.nextReviewDate || ""));
+}
+
+export async function recordReview(id, result) {
+  const numericId = Number(id);
+  if (!Number.isInteger(numericId) || numericId <= 0) {
+    throw new DBError("Invalid question id.");
+  }
+  if (!["correct", "partial", "wrong"].includes(result)) {
+    throw new DBError("result must be 'correct', 'partial', or 'wrong'.");
+  }
+
+  return withStore("readwrite", async (store) => {
+    const current = await reqToPromise(store.get(numericId));
+    if (!current) {
+      throw new DBError(`Question ${numericId} not found.`);
+    }
+
+    const prevStage = current.srsStage ?? 0;
+    let nextStage = prevStage;
+    if (result === "correct") nextStage = Math.min(prevStage + 1, SRS_INTERVALS.length - 1);
+    if (result === "wrong") nextStage = 0;
+    // "partial": asama sabit kalir, ayni araliktan tekrar denenir.
+
+    const now = new Date();
+
+    const next = {
+      ...current,
+      srsStage: nextStage,
+      nextReviewDate: addDaysToDateStr(localDateStr(now), SRS_INTERVALS[nextStage]),
+      reviewCount: (current.reviewCount ?? 0) + 1,
+      lastReviewedAt: now.toISOString(),
+      lastResult: result,
+      updatedAt: now.toISOString()
+    };
+
+    await reqToPromise(store.put(next));
+    return next;
+  });
+}
+
 export async function bulkInsertQuestions(items) {
   if (!Array.isArray(items)) {
     throw new DBError("items must be an array.");
@@ -289,7 +414,7 @@ export async function bulkInsertQuestions(items) {
   await withStore("readwrite", async (store) => {
     for (let i = 0; i < items.length; i += 1) {
       try {
-        const normalized = withTimestamps(validateQuestionInput(items[i]));
+        const normalized = withTimestamps(withSRSDefaults(validateQuestionInput(items[i])));
         await reqToPromise(store.add(normalized));
         inserted += 1;
       } catch (error) {

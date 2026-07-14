@@ -1,4 +1,4 @@
-﻿function toImageElement(fileOrBlob) {
+function toImageElement(fileOrBlob) {
   return new Promise((resolve, reject) => {
     const url = URL.createObjectURL(fileOrBlob);
     const img = new Image();

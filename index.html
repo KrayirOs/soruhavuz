@@ -1,4 +1,4 @@
-﻿<!doctype html>
+<!doctype html>
 <html lang="tr">
 <head>
   <meta charset="utf-8">
@@ -14,6 +14,7 @@
   <div class="container">
     <nav class="top-nav">
       <a href="index.html">Dashboard</a>
+      <a href="tekrar.html">Tekrar</a>
       <a href="liste.html">Liste</a>
       <a href="ekle.html">Soru Ekle</a>
       <a href="rastgele.html">Rastgele</a>
@@ -37,7 +38,7 @@
 
   <script type="module">
     import { bootPage, showMessage, escapeHTML, formatDate } from "./common.js";
-    import { initDB, getAllQuestions } from "./db.js";
+    import { initDB, getAllQuestions, getDueQuestions } from "./db.js";
 
     const kpi = document.getElementById("kpi");
     const recent = document.getElementById("recent");
@@ -49,18 +50,26 @@
       return String(type || "").trim();
     }
 
-    function renderStats(items) {
+    function renderStats(items, dueCount) {
       const total = items.length;
       const favorites = items.filter((q) => q.isFavorite).length;
-      const openEnded = items.filter((q) => normalizeType(q.type) === "acikUclu").length;
-      const multiple = items.filter((q) => normalizeType(q.type) === "coktanSecmeli").length;
 
       kpi.innerHTML = `
         <article class="kpi-item"><span>Toplam</span><strong>${total}</strong></article>
+        <article class="kpi-item"><span>Bugün Tekrar</span><strong>${dueCount}</strong></article>
         <article class="kpi-item"><span>Favori</span><strong>${favorites}</strong></article>
-        <article class="kpi-item"><span>Acik Uclu</span><strong>${openEnded}</strong></article>
-        <article class="kpi-item"><span>Coktan Secmeli</span><strong>${multiple}</strong></article>
       `;
+
+      const badgeHost = document.querySelector('a[href="tekrar.html"]');
+      if (badgeHost) {
+        badgeHost.querySelector(".nav-badge")?.remove();
+        if (dueCount > 0) {
+          const badge = document.createElement("span");
+          badge.className = "nav-badge";
+          badge.textContent = dueCount > 99 ? "99+" : String(dueCount);
+          badgeHost.appendChild(badge);
+        }
+      }
     }
 
     function renderRecent(items) {
@@ -89,7 +98,8 @@
       try {
         await initDB();
         const items = await getAllQuestions();
-        renderStats(items);
+        const due = await getDueQuestions();
+        renderStats(items, due.length);
         renderRecent(items);
         showMessage(status, "Hazir", "success");
       } catch (error) {
@@ -101,4 +111,3 @@
   </script>
 </body>
 </html>
-
