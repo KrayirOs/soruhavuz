@@ -208,13 +208,15 @@ async function withStore(mode, run) {
 }
 
 function withSRSDefaults(question, existing = null) {
-  const base = existing ? {
-    srsStage: existing.srsStage ?? 0,
-    nextReviewDate: existing.nextReviewDate ?? defaultSRS().nextReviewDate,
-    reviewCount: existing.reviewCount ?? 0,
-    lastReviewedAt: existing.lastReviewedAt ?? null,
-    lastResult: existing.lastResult ?? null
-  } : defaultSRS();
+  const base = existing
+    ? {
+        srsStage: existing.srsStage ?? 0,
+        nextReviewDate: existing.nextReviewDate ?? defaultSRS().nextReviewDate,
+        reviewCount: existing.reviewCount ?? 0,
+        lastReviewedAt: existing.lastReviewedAt ?? null,
+        lastResult: existing.lastResult ?? null
+      }
+    : defaultSRS();
 
   return {
     ...question,
@@ -424,4 +426,54 @@ export async function bulkInsertQuestions(items) {
   });
 
   return { inserted, failed: errors.length, errors };
+}
+
+// ===== YENİ FONKSİYONLAR =====
+
+export async function bulkUpdateQuestions(updates) {
+  const results = [];
+  for (const { id, patch } of updates) {
+    try {
+      results.push(await updateQuestion(id, patch));
+    } catch (error) {
+      results.push({ error: error.message });
+    }
+  }
+  return results;
+}
+
+export async function exportDatabase() {
+  const all = await getAllQuestions();
+  return {
+    exportedAt: new Date().toISOString(),
+    version: DB_VERSION,
+    questions: all
+  };
+}
+
+export async function importDatabase(data) {
+  if (data.version !== DB_VERSION) {
+    throw new DBError("Veritabanı versiyonu uyumlu değil");
+  }
+  await clearQuestions();
+  return bulkInsertQuestions(data.questions);
+}
+
+export async function getSRSStats() {
+  const all = await getAllQuestions();
+  const stats = {
+    totalQuestions: all.length,
+    byStage: {},
+    dueToday: 0,
+    reviewedToday: 0
+  };
+
+  const today = localDateStr();
+  for (const q of all) {
+    stats.byStage[q.srsStage ?? 0] = (stats.byStage[q.srsStage ?? 0] ?? 0) + 1;
+    if (q.nextReviewDate <= today) stats.dueToday++;
+    if (q.lastReviewedAt?.startsWith(today)) stats.reviewedToday++;
+  }
+
+  return stats;
 }
