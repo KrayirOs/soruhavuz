@@ -70,6 +70,7 @@
   <script type="module">
     import { bootPage, showMessage, escapeHTML } from "./common.js";
     import { initDB, getRandomQuestion } from "./db.js";
+    import { QUESTION_TYPES } from "./constants.js";
 
     const typeEl = document.getElementById("type");
     const difficultyEl = document.getElementById("difficulty");
@@ -84,13 +85,13 @@
     let currentImageUrl = "";
 
     function normalizeType(type) {
-      if (type === "open-ended") return "acikUclu";
-      if (type === "multiple-choice") return "coktanSecmeli";
+      if (type === QUESTION_TYPES.OPEN) return "acikUclu";
+      if (type === QUESTION_TYPES.MULTIPLE) return "coktanSecmeli";
       return String(type || "").trim();
     }
 
     function isMultipleChoiceType(type) {
-      return normalizeType(type) === "coktanSecmeli";
+      return type === QUESTION_TYPES.MULTIPLE;
     }
 
     function clearCurrentImage() {

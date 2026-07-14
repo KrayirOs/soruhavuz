@@ -110,6 +110,7 @@
   <script type="module">
     import { bootPage, showMessage, draft, debounce } from "./common.js";
     import { initDB, createQuestion, getHierarchy } from "./db.js";
+    import { QUESTION_TYPES } from "./constants.js";
     import { compressImage } from "./image-utils.js";
     import { trackEvent } from "./analytics.js";
 
@@ -146,7 +147,7 @@
     let autoSaveTimer;
 
     function isMultipleChoiceType(type) {
-      return type === "multiple-choice";
+      return type === QUESTION_TYPES.MULTIPLE;
     }
 
     function optionInputHtml(index, value = "") {

@@ -1,3 +1,5 @@
+import { QUESTION_TYPES, isValidQuestionType, isValidDifficulty } from "./constants.js";
+
 const DB_NAME = "soru_havuzu_db";
 const DB_VERSION = 2;
 const STORE_NAME = "questions";
@@ -56,11 +58,11 @@ function txDone(tx) {
 }
 
 function isOpenEndedType(type) {
-  return type === "open-ended";
+  return type === QUESTION_TYPES.OPEN;
 }
 
 function isMultipleChoiceType(type) {
-  return type === "multiple-choice";
+  return type === QUESTION_TYPES.MULTIPLE;
 }
 
 function typeMatches(left, right) {
@@ -82,8 +84,8 @@ function validateQuestionInput(input) {
   const difficulty = String(input.difficulty || "").trim().toLowerCase();
   const isFavorite = Boolean(input.isFavorite);
 
-  if (!["open-ended", "multiple-choice"].includes(type)) {
-    throw new DBError("type must be 'open-ended' or 'multiple-choice'.");
+  if (!isValidQuestionType(type)) {
+    throw new DBError(`type must be '${QUESTION_TYPES.OPEN}' or '${QUESTION_TYPES.MULTIPLE}'.`);
   }
   if (!text) {
     throw new DBError("Question text is required.");
@@ -91,7 +93,7 @@ function validateQuestionInput(input) {
   if (!category || !subcategory) {
     throw new DBError("Category and subcategory are required.");
   }
-  if (!["easy", "medium", "hard"].includes(difficulty)) {
+  if (!isValidDifficulty(difficulty)) {
     throw new DBError("difficulty must be easy, medium, or hard.");
   }
 

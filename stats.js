@@ -1,4 +1,6 @@
 // İstatistikler modülü
+import { QUESTION_TYPES, DIFFICULTY } from "./constants.js";
+
 export class StatsManager {
   constructor() {
     this.stats = new Map();
@@ -13,13 +15,13 @@ export class StatsManager {
       month: 0,
       byCategory: new Map(),
       byDifficulty: {
-        easy: 0,
-        medium: 0,
-        hard: 0
+        [DIFFICULTY.EASY]: 0,
+        [DIFFICULTY.MEDIUM]: 0,
+        [DIFFICULTY.HARD]: 0
       },
       byType: {
-        'open-ended': 0,
-        'multiple-choice': 0
+        [QUESTION_TYPES.OPEN]: 0,
+        [QUESTION_TYPES.MULTIPLE]: 0
       },
       successRate: 0,
       averageReviewCount: 0,

@@ -72,6 +72,7 @@
     import { statsManager } from "./stats.js";
     import { themeManager } from "./theme.js";
     import { shortcutsManager } from "./shortcuts.js";
+    import { QUESTION_TYPE_LABELS } from "./constants.js";
 
     const kpi = document.getElementById("kpi");
     const quickStats = document.getElementById("quickStats");
@@ -83,9 +84,7 @@
     const shortcutsList = document.getElementById("shortcutsList");
 
     function normalizeType(type) {
-      if (type === "open-ended") return "Açık Uçlu";
-      if (type === "multiple-choice") return "Çoktan Seçmeli";
-      return String(type || "").trim();
+      return QUESTION_TYPE_LABELS[type] || String(type || "").trim();
     }
 
     function renderStats(items, dueCount) {

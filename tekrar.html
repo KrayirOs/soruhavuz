@@ -38,6 +38,7 @@
   <script type="module">
     import { bootPage, showMessage, escapeHTML } from "./common.js";
     import { initDB, getDueQuestions, recordReview, SRS_INTERVALS, localDateStr } from "./db.js";
+    import { QUESTION_TYPES, QUESTION_TYPE_LABELS } from "./constants.js";
 
     const kpi = document.getElementById("kpi");
     const statusEl = document.getElementById("status");
@@ -51,9 +52,7 @@
     let sessionTotal = 0;
 
     function normalizeType(type) {
-      if (type === "open-ended") return "Açık Uçlu";
-      if (type === "multiple-choice") return "Çoktan Seçmeli";
-      return String(type || "").trim();
+      return QUESTION_TYPE_LABELS[type] || String(type || "").trim();
     }
 
     function clearCurrentImage() {
@@ -93,7 +92,7 @@
       isAnswerVisible = false;
       const answerText = String(q.answer || "").trim();
       const options = Array.isArray(q.options) ? q.options : [];
-      const optionsHtml = q.type === "multiple-choice" && options.length
+      const optionsHtml = q.type === QUESTION_TYPES.MULTIPLE && options.length
         ? `<ol class="options">${options.map((o) => `<li>${escapeHTML(o)}</li>`).join("")}</ol>`
         : "";
 

@@ -1,4 +1,6 @@
 // Sınav/Exam modülü
+import { QUESTION_TYPES } from "./constants.js";
+
 export class ExamManager {
   constructor() {
     this.currentExam = null;
@@ -69,7 +71,7 @@ export class ExamManager {
     const correct = String(question.answer).toLowerCase().trim();
     const user = String(userAnswer).toLowerCase().trim();
 
-    if (question.type === 'multiple-choice') {
+    if (question.type === QUESTION_TYPES.MULTIPLE) {
       // A, B, C, D veya 0, 1, 2, 3 formatını kontrol et
       const userLetter = String.fromCharCode(65 + user.charCodeAt(0) - 65);
       const correctLetter = String.fromCharCode(65 + correct.charCodeAt(0) - 65);

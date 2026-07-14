@@ -92,6 +92,7 @@
     import { bootPage, showMessage } from "./common.js";
     import { initDB, getAllQuestions } from "./db.js";
     import { statsManager } from "./stats.js";
+    import { QUESTION_TYPES, DIFFICULTY } from "./constants.js";
 
     const tabs = document.querySelectorAll('.tab-btn');
     const tabContents = document.querySelectorAll('.tab-content');
@@ -117,11 +118,11 @@
       document.getElementById('successRate').textContent = stats.successRate.toFixed(1) + '%';
       document.getElementById('totalReviews').textContent = allQuestions.reduce((sum, q) => sum + (q.reviewCount || 0), 0);
       document.getElementById('avgReviews').textContent = stats.averageReviewCount.toFixed(1);
-      document.getElementById('openEnded').textContent = stats.byType['open-ended'];
-      document.getElementById('multiChoice').textContent = stats.byType['multiple-choice'];
-      document.getElementById('easyCount').textContent = stats.byDifficulty.easy;
-      document.getElementById('mediumCount').textContent = stats.byDifficulty.medium;
-      document.getElementById('hardCount').textContent = stats.byDifficulty.hard;
+      document.getElementById('openEnded').textContent = stats.byType[QUESTION_TYPES.OPEN];
+      document.getElementById('multiChoice').textContent = stats.byType[QUESTION_TYPES.MULTIPLE];
+      document.getElementById('easyCount').textContent = stats.byDifficulty[DIFFICULTY.EASY];
+      document.getElementById('mediumCount').textContent = stats.byDifficulty[DIFFICULTY.MEDIUM];
+      document.getElementById('hardCount').textContent = stats.byDifficulty[DIFFICULTY.HARD];
       document.getElementById('weekCount').textContent = stats.week;
     }
 

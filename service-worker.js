@@ -1,6 +1,11 @@
-const CACHE_VERSION = "v1";
+// Her deploy'da bu numarayi elle artir (ya da bir build script ile otomatiklestir).
+// Bu deger degismedigi surece tarayici service worker dosyasini "ayni" sanip
+// telefonlardaki eski onbellegi hic yenilemez; bu da guncellemelerin
+// yuklu PWA'ya hic ulasmamasina yol acan asil sorundu.
+const CACHE_VERSION = "v2";
 const CACHE_NAME = `soru-havuzu-${CACHE_VERSION}`;
 
+// Kullanicinin gercek verisini (IndexedDB) etkilemez; sadece dosya onbellegidir.
 const CACHE_URLS = [
   "/",
   "/index.html",
@@ -9,11 +14,19 @@ const CACHE_URLS = [
   "/tekrar.html",
   "/rastgele.html",
   "/veri.html",
+  "/istatistikler.html",
+  "/ayarlar.html",
+  "/veri.html",
   "/styles.css",
   "/common.js",
+  "/constants.js",
   "/db.js",
   "/image-utils.js",
   "/analytics.js",
+  "/notes.js",
+  "/stats.js",
+  "/shortcuts.js",
+  "/theme.js",
   "/manifest.json"
 ];
 
@@ -52,15 +65,44 @@ self.addEventListener("fetch", (event) => {
   // Skip chrome-extension and similar requests
   if (!event.request.url.startsWith("http")) return;
 
+  const isAppShellFile = event.request.destination === "document" ||
+    event.request.destination === "script" ||
+    event.request.url.endsWith(".html") ||
+    event.request.url.endsWith(".js");
+
+  if (isAppShellFile) {
+    // Network-first: HTML/JS dosyalari icin once agdan guncel surumu almayi dene.
+    // Boylece yaptigin her kod guncellemesi telefondaki yuklu PWA'ya hemen yansir.
+    // Ag yoksa (cevrimdisi), en son onbellenmis surume dus.
+    event.respondWith(
+      fetch(event.request)
+        .then((response) => {
+          if (response && response.status === 200 && response.type === "basic") {
+            const responseClone = response.clone();
+            caches.open(CACHE_NAME).then((cache) => cache.put(event.request, responseClone));
+          }
+          return response;
+        })
+        .catch(() =>
+          caches.match(event.request).then((cached) => {
+            if (cached) return cached;
+            if (event.request.destination === "document") {
+              return caches.match("/index.html");
+            }
+            return new Response("Çevrimdışı moda geçildi", { status: 503 });
+          })
+        )
+    );
+    return;
+  }
+
+  // Diger statik dosyalar (resim, font, css vb.) icin cache-first devam ediyor.
   event.respondWith(
     caches.match(event.request).then((response) => {
-      // Return cache if available
       if (response) return response;
 
-      // Otherwise, try network
       return fetch(event.request)
         .then((response) => {
-          // Cache successful responses
           if (response && response.status === 200 && response.type === "basic") {
             const responseClone = response.clone();
             caches.open(CACHE_NAME).then((cache) => {
@@ -69,13 +111,7 @@ self.addEventListener("fetch", (event) => {
           }
           return response;
         })
-        .catch(() => {
-          // Return offline page if available
-          if (event.request.destination === "document") {
-            return caches.match("/index.html");
-          }
-          return new Response("Çevrimdışı moda geçildi", { status: 503 });
-        });
+        .catch(() => new Response("Çevrimdışı moda geçildi", { status: 503 }));
     })
   );
 });
