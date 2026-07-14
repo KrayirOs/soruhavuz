@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0b1020">
+  <title>Soru Havuzu | İstatistikler</title>
+  <link rel="manifest" href="manifest.json">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,500;0,700;1,400&family=Instrument+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="container">
+    <nav class="top-nav">
+      <a href="index.html">Dashboard</a>
+      <a href="tekrar.html">Tekrar</a>
+      <a href="istatistikler.html">İstatistikler</a>
+      <a href="liste.html">Liste</a>
+      <a href="ekle.html">Soru Ekle</a>
+      <a href="ayarlar.html">Ayarlar</a>
+    </nav>
+
+    <section class="panel">
+      <header class="page-head">
+        <h1>İstatistikler</h1>
+        <p class="small">Öğrenme ilerlemenizi görsel olarak takip edin.</p>
+      </header>
+      <div class="stats-tabs">
+        <button class="tab-btn active" data-tab="overview">Genel Bakış</button>
+        <button class="tab-btn" data-tab="categories">Kategoriler</button>
+        <button class="tab-btn" data-tab="progress">İlerleme</button>
+      </div>
+      <div id="status" class="status info">Yükleniyor...</div>
+    </section>
+
+    <!-- Genel Bakış -->
+    <section class="panel tab-content" id="overview">
+      <div class="stats-grid">
+        <div class="stat-card large">
+          <div class="stat-label">Başarı Oranı</div>
+          <div class="stat-value" id="successRate">-</div>
+          <canvas id="successChart" class="stat-chart"></canvas>
+        </div>
+        <div class="stat-card large">
+          <div class="stat-label">Toplam Tekrar</div>
+          <div class="stat-value" id="totalReviews">-</div>
+          <div class="stat-meta">ortalama <span id="avgReviews">-</span> tekrar/soru</div>
+        </div>
+      </div>
+      <div class="stats-grid-2">
+        <div class="stat-card">
+          <div class="stat-label">Açık Uçlu</div>
+          <div class="stat-value" id="openEnded">-</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Çoktan Seçmeli</div>
+          <div class="stat-value" id="multiChoice">-</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Kolay</div>
+          <div class="stat-value" id="easyCount">-</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Orta</div>
+          <div class="stat-value" id="mediumCount">-</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Zor</div>
+          <div class="stat-value" id="hardCount">-</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Bu Hafta</div>
+          <div class="stat-value" id="weekCount">-</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Kategoriler -->
+    <section class="panel tab-content hidden" id="categories">
+      <div id="categoriesList" class="categories-detailed"></div>
+    </section>
+
+    <!-- İlerleme -->
+    <section class="panel tab-content hidden" id="progress">
+      <h2>Haftalık İlerleme</h2>
+      <div id="progressChart" class="progress-chart"></div>
+    </section>
+  </div>
+
+  <script type="module">
+    import { bootPage, showMessage } from "./common.js";
+    import { initDB, getAllQuestions } from "./db.js";
+    import { statsManager } from "./stats.js";
+
+    const tabs = document.querySelectorAll('.tab-btn');
+    const tabContents = document.querySelectorAll('.tab-content');
+    const status = document.getElementById('status');
+
+    let currentStats = null;
+    let allQuestions = [];
+
+    tabs.forEach(tab => {
+      tab.addEventListener('click', () => {
+        // Aktif tabı kaldır
+        tabs.forEach(t => t.classList.remove('active'));
+        tabContents.forEach(c => c.classList.add('hidden'));
+        
+        // Yeni sekmeyi aktifle
+        tab.classList.add('active');
+        const tabName = tab.dataset.tab;
+        document.getElementById(tabName).classList.remove('hidden');
+      });
+    });
+
+    function renderOverview(stats) {
+      document.getElementById('successRate').textContent = stats.successRate.toFixed(1) + '%';
+      document.getElementById('totalReviews').textContent = allQuestions.reduce((sum, q) => sum + (q.reviewCount || 0), 0);
+      document.getElementById('avgReviews').textContent = stats.averageReviewCount.toFixed(1);
+      document.getElementById('openEnded').textContent = stats.byType['open-ended'];
+      document.getElementById('multiChoice').textContent = stats.byType['multiple-choice'];
+      document.getElementById('easyCount').textContent = stats.byDifficulty.easy;
+      document.getElementById('mediumCount').textContent = stats.byDifficulty.medium;
+      document.getElementById('hardCount').textContent = stats.byDifficulty.hard;
+      document.getElementById('weekCount').textContent = stats.week;
+    }
+
+    function renderCategories(stats) {
+      const categories = statsManager.getCategoryStats(stats);
+      const html = categories.map(cat => `
+        <div class="category-detail">
+          <div class="cat-header">
+            <span class="cat-name">${cat.name}</span>
+            <span class="cat-count">${cat.total} soru</span>
+          </div>
+          <div class="cat-stats">
+            <div class="stat-item">
+              <span>Doğru</span>
+              <strong>${cat.correct}</strong>
+            </div>
+            <div class="stat-item">
+              <span>Yanlış</span>
+              <strong>${cat.failed}</strong>
+            </div>
+            <div class="stat-item">
+              <span>Oran</span>
+              <strong>${cat.successRate.toFixed(0)}%</strong>
+            </div>
+          </div>
+          <div class="stat-bar">
+            <div class="stat-fill" style="width: ${cat.successRate}%"></div>
+          </div>
+        </div>
+      `).join('');
+      document.getElementById('categoriesList').innerHTML = html;
+    }
+
+    function renderProgress(stats) {
+      const progressData = statsManager.getProgressData(allQuestions, 7);
+      const html = progressData.map(day => `
+        <div class="progress-day">
+          <div class="progress-label">${day.date}</div>
+          <div class="progress-bars">
+            <div class="progress-bar added" title="Eklenen: ${day.added}">Eklenen: ${day.added}</div>
+            <div class="progress-bar reviewed" title="Tekrarlanan: ${day.reviewed}">Tekrarlanan: ${day.reviewed}</div>
+          </div>
+        </div>
+      `).join('');
+      document.getElementById('progressChart').innerHTML = html;
+    }
+
+    async function init() {
+      await bootPage();
+      try {
+        await initDB();
+        allQuestions = await getAllQuestions();
+        currentStats = await statsManager.calculateStats(allQuestions);
+        
+        renderOverview(currentStats);
+        renderCategories(currentStats);
+        renderProgress(currentStats);
+        
+        showMessage(status, "Hazır", "success");
+      } catch (error) {
+        showMessage(status, error.message || "İstatistikler yüklenemedi.", "error");
+      }
+    }
+
+    init();
+  </script>
+</body>
+</html>

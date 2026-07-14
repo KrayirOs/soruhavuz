@@ -15,38 +15,76 @@
     <nav class="top-nav">
       <a href="index.html">Dashboard</a>
       <a href="tekrar.html">Tekrar</a>
+      <a href="istatistikler.html">İstatistikler</a>
       <a href="liste.html">Liste</a>
       <a href="ekle.html">Soru Ekle</a>
-      <a href="rastgele.html">Rastgele</a>
-      <a href="veri.html">Veri</a>
+      <a href="ayarlar.html">Ayarlar</a>
     </nav>
 
     <section class="panel">
       <header class="page-head">
-        <h1>Soru Havuzu</h1>
-        <p class="small">Offline-first PWA, IndexedDB tabanli yapi.</p>
+        <div class="page-head-top">
+          <div>
+            <h1>Soru Havuzu</h1>
+            <p class="small">Offline-first PWA, IndexedDB tabanli yapi.</p>
+          </div>
+          <div class="page-actions">
+            <button id="themeToggle" class="icon-btn" title="Tema değiş">🌙</button>
+            <button id="helpBtn" class="icon-btn" title="Kısayollar (Shift+?)">?</button>
+          </div>
+        </div>
       </header>
       <div class="kpi" id="kpi"></div>
     </section>
 
     <section class="panel">
-      <h2>Son Eklenenler</h2>
-      <div id="recent" class="list"></div>
-      <div id="status" class="status info">Yukleniyor...</div>
+      <div class="section-header">
+        <h2>Hızlı İstatistikler</h2>
+        <a href="istatistikler.html" class="link-btn">Detaylı İstatistikler →</a>
+      </div>
+      <div class="quick-stats" id="quickStats"></div>
     </section>
+
+    <section class="panel">
+      <div class="section-header">
+        <h2>Son Eklenenler</h2>
+      </div>
+      <div id="recent" class="list"></div>
+      <div id="status" class="status info">Yükleniyor...</div>
+    </section>
+  </div>
+
+  <!-- Yardım Modal -->
+  <div id="helpModal" class="modal hidden">
+    <div class="modal-overlay" onclick="document.getElementById('helpModal').classList.add('hidden')"></div>
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2>Klavye Kısayolları</h2>
+        <button class="close-btn" onclick="document.getElementById('helpModal').classList.add('hidden')">✕</button>
+      </div>
+      <div id="shortcutsList" class="shortcuts-list"></div>
+    </div>
   </div>
 
   <script type="module">
     import { bootPage, showMessage, escapeHTML, formatDate } from "./common.js";
     import { initDB, getAllQuestions, getDueQuestions } from "./db.js";
+    import { statsManager } from "./stats.js";
+    import { themeManager } from "./theme.js";
+    import { shortcutsManager } from "./shortcuts.js";
 
     const kpi = document.getElementById("kpi");
+    const quickStats = document.getElementById("quickStats");
     const recent = document.getElementById("recent");
     const status = document.getElementById("status");
+    const themeToggle = document.getElementById("themeToggle");
+    const helpBtn = document.getElementById("helpBtn");
+    const helpModal = document.getElementById("helpModal");
+    const shortcutsList = document.getElementById("shortcutsList");
 
     function normalizeType(type) {
-      if (type === "open-ended") return "acikUclu";
-      if (type === "multiple-choice") return "coktanSecmeli";
+      if (type === "open-ended") return "Açık Uçlu";
+      if (type === "multiple-choice") return "Çoktan Seçmeli";
       return String(type || "").trim();
     }
 
@@ -55,9 +93,21 @@
       const favorites = items.filter((q) => q.isFavorite).length;
 
       kpi.innerHTML = `
-        <article class="kpi-item"><span>Toplam</span><strong>${total}</strong></article>
-        <article class="kpi-item"><span>Bugün Tekrar</span><strong>${dueCount}</strong></article>
-        <article class="kpi-item"><span>Favori</span><strong>${favorites}</strong></article>
+        <article class="kpi-item">
+          <span>Toplam</span>
+          <strong>${total}</strong>
+          <span class="kpi-sub">soru</span>
+        </article>
+        <article class="kpi-item">
+          <span>Bugün Tekrar</span>
+          <strong>${dueCount}</strong>
+          <span class="kpi-sub">bekleyen</span>
+        </article>
+        <article class="kpi-item">
+          <span>Favori</span>
+          <strong>${favorites}</strong>
+          <span class="kpi-sub">kayıt</span>
+        </article>
       `;
 
       const badgeHost = document.querySelector('a[href="tekrar.html"]');
@@ -72,9 +122,45 @@
       }
     }
 
+    function renderQuickStats(stats) {
+      const categoryStats = statsManager.getCategoryStats(stats);
+      const topCategories = categoryStats.slice(0, 3);
+
+      quickStats.innerHTML = `
+        <div class="stats-grid">
+          <div class="stat-card">
+            <div class="stat-label">Başarı Oranı</div>
+            <div class="stat-value">${stats.successRate.toFixed(1)}%</div>
+            <div class="stat-bar">
+              <div class="stat-fill" style="width: ${stats.successRate}%"></div>
+            </div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Ort. Tekrar</div>
+            <div class="stat-value">${stats.averageReviewCount.toFixed(1)}</div>
+            <div class="stat-meta">soru başına</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Gecikmiş</div>
+            <div class="stat-value" style="color: var(--danger-c);">${stats.overdue}</div>
+            <div class="stat-meta">soru</div>
+          </div>
+        </div>
+        <div class="categories-preview">
+          <div class="preview-title">En İyisi</div>
+          ${topCategories.map(cat => `
+            <div class="category-item">
+              <span class="cat-name">${escapeHTML(cat.name)}</span>
+              <span class="cat-rate">${cat.successRate.toFixed(0)}%</span>
+            </div>
+          `).join("")}
+        </div>
+      `;
+    }
+
     function renderRecent(items) {
       if (!items.length) {
-        recent.innerHTML = "<div class='small'>Kayit yok.</div>";
+        recent.innerHTML = "<div class='small'>Kayıt yok.</div>";
         return;
       }
 
@@ -82,16 +168,48 @@
         .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
         .slice(0, 5)
         .map((q) => `
-          <article class="question-card">
-            <div>${escapeHTML(q.text)}</div>
-            <div class="question-meta">
-              ${escapeHTML(q.category)} > ${escapeHTML(q.subcategory)} | ${escapeHTML(q.difficulty)} | ${q.isFavorite ? "favori" : "normal"}
+          <article class="question-card compact">
+            <div class="card-title">${escapeHTML(q.text.substring(0, 60))}${q.text.length > 60 ? '...' : ''}</div>
+            <div class="question-meta small">
+              <span class="tag">${escapeHTML(q.category)}</span>
+              <span class="tag">${escapeHTML(q.difficulty)}</span>
+              <span class="tag">${normalizeType(q.type)}</span>
             </div>
-            <div class="small">${formatDate(q.createdAt)}</div>
           </article>
         `)
         .join("");
     }
+
+    function renderShortcuts() {
+      const shortcuts = shortcutsManager.getShortcutsList();
+      shortcutsList.innerHTML = shortcuts.map(s => `
+        <div class="shortcut-item">
+          <div class="shortcut-key">${s.key}</div>
+          <div class="shortcut-info">
+            <div class="shortcut-name">${s.name}</div>
+            <div class="shortcut-desc">${s.description}</div>
+          </div>
+        </div>
+      `).join("");
+    }
+
+    themeToggle.addEventListener('click', () => {
+      const theme = themeManager.toggleTheme();
+      themeToggle.textContent = theme === 'dark' ? '☀️' : '🌙';
+    });
+
+    helpBtn.addEventListener('click', () => {
+      helpModal.classList.remove('hidden');
+      renderShortcuts();
+    });
+
+    // Kısayollar
+    window.addEventListener('shortcut', (e) => {
+      if (e.detail.action === 'showHelp') {
+        helpModal.classList.remove('hidden');
+        renderShortcuts();
+      }
+    });
 
     async function init() {
       await bootPage();
@@ -99,11 +217,19 @@
         await initDB();
         const items = await getAllQuestions();
         const due = await getDueQuestions();
+        const stats = await statsManager.calculateStats(items);
+        
         renderStats(items, due.length);
+        renderQuickStats(stats);
         renderRecent(items);
-        showMessage(status, "Hazir", "success");
+        showMessage(status, "Hazır", "success");
+        
+        // Tema butonu güncelle
+        themeToggle.textContent = themeManager.currentTheme === 'dark' || 
+          (themeManager.currentTheme === 'auto' && window.matchMedia('(prefers-color-scheme: dark)').matches) 
+          ? '☀️' : '🌙';
       } catch (error) {
-        showMessage(status, error.message || "Veri okunamadi.", "error");
+        showMessage(status, error.message || "Veri okunamadı.", "error");
       }
     }
 

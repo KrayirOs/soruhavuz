@@ -1,0 +1,216 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0b1020">
+  <title>Soru Havuzu | Ayarlar</title>
+  <link rel="manifest" href="manifest.json">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,500;0,700;1,400&family=Instrument+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="container">
+    <nav class="top-nav">
+      <a href="index.html">Dashboard</a>
+      <a href="tekrar.html">Tekrar</a>
+      <a href="istatistikler.html">İstatistikler</a>
+      <a href="liste.html">Liste</a>
+      <a href="ekle.html">Soru Ekle</a>
+      <a href="ayarlar.html">Ayarlar</a>
+    </nav>
+
+    <section class="panel">
+      <header class="page-head">
+        <h1>Ayarlar</h1>
+        <p class="small">Uygulamayı kişiselleştirin.</p>
+      </header>
+    </section>
+
+    <!-- Tema Ayarları -->
+    <section class="panel">
+      <h2>Görünüm</h2>
+      <div class="setting-group">
+        <label for="themeSelect">Tema</label>
+        <select id="themeSelect">
+          <option value="auto">Sistem Otomatiği</option>
+          <option value="dark">Koyu</option>
+          <option value="light">Açık</option>
+        </select>
+        <p class="setting-hint">Uygulama görünüşü tercihinize göre ayarlanır.</p>
+      </div>
+    </section>
+
+    <!-- SRS Ayarları -->
+    <section class="panel">
+      <h2>Tekrar Sistemi (SRS)</h2>
+      <div class="setting-group">
+        <label for="easyInterval">Kolay Cevap Aralıkları (gün)</label>
+        <input id="easyInterval" type="text" placeholder="1, 2, 4, 7, 14, 30, 60" value="1, 2, 4, 7, 14, 30, 60">
+        <p class="setting-hint">Doğru cevaplandığında ilerleyeceği günler.</p>
+      </div>
+      <div class="setting-group">
+        <label for="resetDifficulty">
+          <input type="checkbox" id="resetDifficulty" checked>
+          Yanlış Cevapta Başa Dön
+        </label>
+        <p class="setting-hint">Yanlış cevaplanan sorular başlangıç aralığına sıfırlanır.</p>
+      </div>
+    </section>
+
+    <!-- Veri Ayarları -->
+    <section class="panel">
+      <h2>Veri</h2>
+      <div class="actions">
+        <button id="exportBtn">📥 JSON Dışa Aktar</button>
+        <button id="importBtn" class="secondary">📤 JSON İçe Aktar</button>
+        <button id="clearBtn" class="warn">🗑 Tüm Verileri Sil</button>
+      </div>
+      <input id="importFile" type="file" accept="application/json" class="hidden">
+      <div id="dataStatus" class="status info" style="margin-top: 10px;"></div>
+    </section>
+
+    <!-- Hakkında -->
+    <section class="panel">
+      <h2>Hakkında</h2>
+      <div class="about-info">
+        <div class="info-row">
+          <span>Sürüm</span>
+          <span id="version">1.0.0</span>
+        </div>
+        <div class="info-row">
+          <span>Depolama</span>
+          <span id="storageUsage">-</span>
+        </div>
+        <div class="info-row">
+          <span>Tür</span>
+          <span>Offline-first PWA</span>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <script type="module">
+    import { bootPage, showMessage, downloadJSON, blobToDataURL, dataURLToBlob, safeFileName } from "./common.js";
+    import { initDB, getAllQuestions, clearQuestions, bulkInsertQuestions } from "./db.js";
+    import { themeManager } from "./theme.js";
+
+    const themeSelect = document.getElementById('themeSelect');
+    const exportBtn = document.getElementById('exportBtn');
+    const importBtn = document.getElementById('importBtn');
+    const importFile = document.getElementById('importFile');
+    const clearBtn = document.getElementById('clearBtn');
+    const dataStatus = document.getElementById('dataStatus');
+    const storageUsage = document.getElementById('storageUsage');
+
+    // Tema seçici
+    themeSelect.value = themeManager.currentTheme;
+    themeSelect.addEventListener('change', (e) => {
+      themeManager.setTheme(e.target.value);
+      showMessage(dataStatus, 'Tema güncellendi', 'success');
+    });
+
+    // Export
+    exportBtn.addEventListener('click', async () => {
+      showMessage(dataStatus, 'Dışa aktarılıyor...', 'info');
+      try {
+        const questions = await getAllQuestions();
+        const out = [];
+        for (const q of questions) {
+          const item = { ...q };
+          delete item.id;
+          if (item.image?.blob) {
+            item.image = {
+              ...item.image,
+              dataUrl: await blobToDataURL(item.image.blob)
+            };
+            delete item.image.blob;
+          }
+          out.push(item);
+        }
+        const payload = {
+          app: 'Soru Havuzu',
+          schemaVersion: 1,
+          exportedAt: new Date().toISOString(),
+          count: out.length,
+          questions: out
+        };
+        const stamp = new Date().toISOString().slice(0, 19).replaceAll(':', '-');
+        downloadJSON(`soru-havuzu-${safeFileName(stamp)}.json`, payload);
+        showMessage(dataStatus, `Başarılı! ${payload.count} soru dışa aktarıldı.`, 'success');
+      } catch (error) {
+        showMessage(dataStatus, error.message || 'Dışa aktarma başarısız.', 'error');
+      }
+    });
+
+    // Import
+    importBtn.addEventListener('click', () => importFile.click());
+    importFile.addEventListener('change', async () => {
+      const file = importFile.files?.[0];
+      if (!file) return;
+      showMessage(dataStatus, 'İçe aktarılıyor...', 'info');
+      try {
+        const text = await file.text();
+        const data = JSON.parse(text);
+        const normalized = [];
+        for (const raw of data.questions) {
+          const item = {
+            type: raw.type,
+            text: raw.text,
+            options: Array.isArray(raw.options) ? raw.options : [],
+            answer: raw.answer,
+            category: raw.category,
+            subcategory: raw.subcategory,
+            difficulty: raw.difficulty,
+            isFavorite: Boolean(raw.isFavorite),
+            image: null
+          };
+          if (raw.image?.dataUrl) {
+            const blob = await dataURLToBlob(raw.image.dataUrl);
+            item.image = {
+              blob,
+              mimeType: raw.image.mimeType || blob.type || 'image/jpeg',
+              width: raw.image.width || null,
+              height: raw.image.height || null,
+              size: blob.size
+            };
+          }
+          normalized.push(item);
+        }
+        const result = await bulkInsertQuestions(normalized);
+        showMessage(dataStatus, `Başarılı! ${result.inserted} soru içe aktarıldı.`, 'success');
+      } catch (error) {
+        showMessage(dataStatus, error.message || 'İçe aktarma başarısız.', 'error');
+      }
+    });
+
+    // Tüm verileri sil
+    clearBtn.addEventListener('click', async () => {
+      if (!confirm('TÜM VERİLER SİLİNECEK! Bu işlem geri alınamaz. Devam et?')) return;
+      try {
+        await clearQuestions();
+        showMessage(dataStatus, 'Tüm veriler silindi.', 'success');
+      } catch (error) {
+        showMessage(dataStatus, error.message || 'Silme başarısız.', 'error');
+      }
+    });
+
+    // Depolama bilgisi
+    if (navigator.storage && navigator.storage.estimate) {
+      navigator.storage.estimate().then(estimate => {
+        const used = (estimate.usage / 1024 / 1024).toFixed(2);
+        const quota = (estimate.quota / 1024 / 1024).toFixed(2);
+        storageUsage.textContent = `${used}MB / ${quota}MB`;
+      });
+    }
+
+    async function init() {
+      await bootPage();
+      await initDB();
+    }
+
+    init();
+  </script>
+</body>
+</html>
