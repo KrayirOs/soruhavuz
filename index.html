@@ -30,7 +30,6 @@
           </div>
           <div class="page-actions">
             <button id="themeToggle" class="icon-btn" title="Tema değiş">🌙</button>
-            <button id="helpBtn" class="icon-btn" title="Kısayollar (Shift+?)">?</button>
           </div>
         </div>
       </header>
@@ -54,24 +53,11 @@
     </section>
   </div>
 
-  <!-- Yardım Modal -->
-  <div id="helpModal" class="modal hidden">
-    <div class="modal-overlay" onclick="document.getElementById('helpModal').classList.add('hidden')"></div>
-    <div class="modal-content">
-      <div class="modal-header">
-        <h2>Klavye Kısayolları</h2>
-        <button class="close-btn" onclick="document.getElementById('helpModal').classList.add('hidden')">✕</button>
-      </div>
-      <div id="shortcutsList" class="shortcuts-list"></div>
-    </div>
-  </div>
-
   <script type="module">
     import { bootPage, showMessage, escapeHTML, formatDate } from "./common.js";
     import { initDB, getAllQuestions, getDueQuestions } from "./db.js";
     import { statsManager } from "./stats.js";
     import { themeManager } from "./theme.js";
-    import { shortcutsManager } from "./shortcuts.js";
     import { QUESTION_TYPE_LABELS } from "./constants.js";
 
     const kpi = document.getElementById("kpi");
@@ -79,9 +65,6 @@
     const recent = document.getElementById("recent");
     const status = document.getElementById("status");
     const themeToggle = document.getElementById("themeToggle");
-    const helpBtn = document.getElementById("helpBtn");
-    const helpModal = document.getElementById("helpModal");
-    const shortcutsList = document.getElementById("shortcutsList");
 
     function normalizeType(type) {
       return QUESTION_TYPE_LABELS[type] || String(type || "").trim();
@@ -179,35 +162,9 @@
         .join("");
     }
 
-    function renderShortcuts() {
-      const shortcuts = shortcutsManager.getShortcutsList();
-      shortcutsList.innerHTML = shortcuts.map(s => `
-        <div class="shortcut-item">
-          <div class="shortcut-key">${s.key}</div>
-          <div class="shortcut-info">
-            <div class="shortcut-name">${s.name}</div>
-            <div class="shortcut-desc">${s.description}</div>
-          </div>
-        </div>
-      `).join("");
-    }
-
     themeToggle.addEventListener('click', () => {
       const theme = themeManager.toggleTheme();
       themeToggle.textContent = theme === 'dark' ? '☀️' : '🌙';
-    });
-
-    helpBtn.addEventListener('click', () => {
-      helpModal.classList.remove('hidden');
-      renderShortcuts();
-    });
-
-    // Kısayollar
-    window.addEventListener('shortcut', (e) => {
-      if (e.detail.action === 'showHelp') {
-        helpModal.classList.remove('hidden');
-        renderShortcuts();
-      }
     });
 
     async function init() {

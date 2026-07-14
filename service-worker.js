@@ -16,16 +16,13 @@ const CACHE_URLS = [
   "/veri.html",
   "/istatistikler.html",
   "/ayarlar.html",
-  "/veri.html",
   "/styles.css",
   "/common.js",
   "/constants.js",
   "/db.js",
   "/image-utils.js",
   "/analytics.js",
-  "/notes.js",
   "/stats.js",
-  "/shortcuts.js",
   "/theme.js",
   "/manifest.json"
 ];

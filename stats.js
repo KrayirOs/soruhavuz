@@ -34,7 +34,8 @@ export class StatsManager {
     const monthAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
 
     let totalReviews = 0;
-    let correctReviews = 0;
+    let reviewedQuestionCount = 0;
+    let correctLastResultCount = 0;
 
     for (const q of questions) {
       // Kategori istatistikleri
@@ -59,7 +60,8 @@ export class StatsManager {
       // Tekrar istatistikleri
       if (q.reviewCount) {
         totalReviews += q.reviewCount;
-        if (q.lastResult === 'correct') correctReviews++;
+        reviewedQuestionCount++;
+        if (q.lastResult === 'correct') correctLastResultCount++;
       }
 
       // Gecikmiş sorular
@@ -69,7 +71,7 @@ export class StatsManager {
     }
 
     stats.averageReviewCount = questions.length > 0 ? totalReviews / questions.length : 0;
-    stats.successRate = totalReviews > 0 ? (correctReviews / totalReviews) * 100 : 0;
+    stats.successRate = reviewedQuestionCount > 0 ? (correctLastResultCount / reviewedQuestionCount) * 100 : 0;
 
     return stats;
   }

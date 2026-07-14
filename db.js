@@ -444,23 +444,6 @@ export async function bulkUpdateQuestions(updates) {
   return results;
 }
 
-export async function exportDatabase() {
-  const all = await getAllQuestions();
-  return {
-    exportedAt: new Date().toISOString(),
-    version: DB_VERSION,
-    questions: all
-  };
-}
-
-export async function importDatabase(data) {
-  if (data.version !== DB_VERSION) {
-    throw new DBError("Veritabanı versiyonu uyumlu değil");
-  }
-  await clearQuestions();
-  return bulkInsertQuestions(data.questions);
-}
-
 export async function getSRSStats() {
   const all = await getAllQuestions();
   const stats = {
