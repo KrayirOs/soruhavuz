@@ -81,3 +81,86 @@ export async function dataURLToBlob(dataUrl) {
 export function safeFileName(value) {
   return String(value).replace(/[^a-z0-9-_]+/gi, "-").replace(/-+/g, "-").replace(/^-|-$/g, "").toLowerCase();
 }
+
+// ===== YENİ FONKSİYONLAR =====
+
+export function validateEmail(email) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+}
+
+export function debounce(fn, delay) {
+  let timeoutId;
+  return function(...args) {
+    clearTimeout(timeoutId);
+    timeoutId = setTimeout(() => fn.apply(this, args), delay);
+  };
+}
+
+export function throttle(fn, limit) {
+  let inThrottle;
+  return function(...args) {
+    if (!inThrottle) {
+      fn.apply(this, args);
+      inThrottle = true;
+      setTimeout(() => (inThrottle = false), limit);
+    }
+  };
+}
+
+// Cache helper
+export const cache = {
+  set(key, value, ttl = 3600000) {
+    try {
+      sessionStorage.setItem(key, JSON.stringify({ value, exp: Date.now() + ttl }));
+    } catch (error) {
+      console.warn("Cache set failed:", error);
+    }
+  },
+  get(key) {
+    try {
+      const item = sessionStorage.getItem(key);
+      if (!item) return null;
+      const { value, exp } = JSON.parse(item);
+      if (Date.now() > exp) {
+        sessionStorage.removeItem(key);
+        return null;
+      }
+      return value;
+    } catch (error) {
+      console.warn("Cache get failed:", error);
+      return null;
+    }
+  },
+  clear(key) {
+    sessionStorage.removeItem(key);
+  },
+  clearAll() {
+    sessionStorage.clear();
+  }
+};
+
+// Draft management
+export const draft = {
+  save(key, data) {
+    try {
+      localStorage.setItem(`draft_${key}`, JSON.stringify({ data, savedAt: new Date().toISOString() }));
+    } catch (error) {
+      console.warn("Draft save failed:", error);
+    }
+  },
+  load(key) {
+    try {
+      const item = localStorage.getItem(`draft_${key}`);
+      return item ? JSON.parse(item).data : null;
+    } catch (error) {
+      console.warn("Draft load failed:", error);
+      return null;
+    }
+  },
+  remove(key) {
+    localStorage.removeItem(`draft_${key}`);
+  },
+  exists(key) {
+    return localStorage.getItem(`draft_${key}`) !== null;
+  }
+};

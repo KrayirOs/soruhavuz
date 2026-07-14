@@ -26,7 +26,7 @@
         <h1>Yeni Soru</h1>
         <p class="small">Acik uclu veya coktan secmeli soru olustur, kategori ve zorluk bilgisi ekle.</p>
       </header>
-      <form id="questionForm" class="grid">
+      <form id="questionForm" class="grid" novalidate>
         <div class="grid two">
           <div>
             <label for="typeSelect">Tip</label>
@@ -97,7 +97,8 @@
         </div>
 
         <div class="actions">
-          <button type="submit">Kaydet</button>
+          <button type="submit" id="submitBtn">Kaydet</button>
+          <button type="button" id="draftBtn" class="secondary">Taslak Olarak Kaydet</button>
           <button type="button" id="resetBtn" class="secondary">Temizle</button>
         </div>
       </form>
@@ -107,9 +108,10 @@
   </div>
 
   <script type="module">
-    import { bootPage, showMessage } from "./common.js";
+    import { bootPage, showMessage, draft, debounce } from "./common.js";
     import { initDB, createQuestion, getHierarchy } from "./db.js";
     import { compressImage } from "./image-utils.js";
+    import { trackEvent } from "./analytics.js";
 
     const form = document.getElementById("questionForm");
     const typeEl = document.getElementById("typeSelect");
@@ -134,10 +136,14 @@
     const favoriteEl = document.getElementById("favorite");
     const statusEl = document.getElementById("status");
     const resetBtn = document.getElementById("resetBtn");
+    const draftBtn = document.getElementById("draftBtn");
+    const submitBtn = document.getElementById("submitBtn");
 
     const MAX_OPTIONS = 8;
+    const AUTO_SAVE_INTERVAL = 30000; // 30 saniye
     let selectedImage = null;
     let previewObjectUrl = "";
+    let autoSaveTimer;
 
     function isMultipleChoiceType(type) {
       return type === "multiple-choice";
@@ -202,7 +208,7 @@
         return;
       }
 
-      const { blob, meta } = await compressImage(file, { maxWidth: 1280, quality: 0.7 });
+      const { blob, meta } = await compressImage(file, { maxWidth: 1280, maxHeight: 1280, quality: 0.7 });
       selectedImage = {
         blob,
         mimeType: meta.mimeType,
@@ -214,8 +220,58 @@
       previewObjectUrl = URL.createObjectURL(blob);
       preview.src = previewObjectUrl;
       preview.classList.remove("hidden");
-      const savedPct = meta.originalSize ? Math.round(100 - (meta.compressedSize / meta.originalSize) * 100) : 0;
-      imageMeta.textContent = `Orijinal: ${Math.round(meta.originalSize / 1024)}KB -> Sikistirilmis: ${Math.round(meta.compressedSize / 1024)}KB (%${Math.max(savedPct, 0)} kucultme)`;
+      const savedPct = meta.compressionPercent || 0;
+      imageMeta.textContent = `Orijinal: ${Math.round(meta.originalSize / 1024)}KB -> Sikistirilmis: ${Math.round(meta.compressedSize / 1024)}KB (%${savedPct} kucultme)`;
+    }
+
+    function captureFormState() {
+      return {
+        type: typeEl.value,
+        text: textEl.value,
+        category: categoryEl.value,
+        subcategory: subcategoryEl.value,
+        difficulty: difficultyEl.value,
+        options: getOptionValues(),
+        answer: isMultipleChoiceType(typeEl.value) ? mcAnswerEl.value : openAnswerEl.value,
+        favorite: favoriteEl.checked
+      };
+    }
+
+    function enableAutoSave() {
+      autoSaveTimer = setInterval(() => {
+        const state = captureFormState();
+        if (state.text.trim()) {
+          draft.save("question", state);
+          console.log("📝 Taslak otomatik kaydedildi");
+        }
+      }, AUTO_SAVE_INTERVAL);
+    }
+
+    function disableAutoSave() {
+      if (autoSaveTimer) clearInterval(autoSaveTimer);
+    }
+
+    function recoverDraft() {
+      const savedDraft = draft.load("question");
+      if (savedDraft && savedDraft.text.trim()) {
+        typeEl.value = savedDraft.type;
+        textEl.value = savedDraft.text;
+        categoryEl.value = savedDraft.category;
+        subcategoryEl.value = savedDraft.subcategory;
+        difficultyEl.value = savedDraft.difficulty;
+        favoriteEl.checked = savedDraft.favorite;
+
+        if (savedDraft.options.length > 0) {
+          renderOptions(savedDraft.options.length);
+          optionsWrap.querySelectorAll("input[data-option-index]").forEach((el, i) => {
+            el.value = savedDraft.options[i];
+          });
+        }
+
+        toggleTypeFields();
+        showMessage(statusEl, "📋 Önceki taslak geri yüklendi", "success");
+        trackEvent("draft_recovered");
+      }
     }
 
     function buildPayload(type) {
@@ -249,7 +305,9 @@
       preview.classList.add("hidden");
       preview.removeAttribute("src");
       imageMeta.textContent = "";
-      showMessage(statusEl, "Form temizlendi.", "info");
+      draft.remove("question");
+      showMessage(statusEl, "🗑️ Form temizlendi", "info");
+      trackEvent("form_reset");
     }
 
     async function init() {
@@ -258,14 +316,17 @@
       renderOptions(0);
       toggleTypeFields();
       await loadHierarchy();
-      showMessage(statusEl, "Kayda hazir.", "success");
+      recoverDraft();
+      enableAutoSave();
+      showMessage(statusEl, "✅ Kayda hazir", "success");
+      trackEvent("page_load", { page: "ekle" });
     }
 
     typeEl.addEventListener("change", toggleTypeFields);
 
-    categoryEl.addEventListener("input", async () => {
+    categoryEl.addEventListener("input", debounce(async () => {
       await loadHierarchy();
-    });
+    }, 300));
 
     optionsWrap.addEventListener("click", (event) => {
       const btn = event.target.closest("button[data-remove-index]");
@@ -287,7 +348,7 @@
     addOptionBtn.addEventListener("click", () => {
       const current = optionsWrap.querySelectorAll("input[data-option-index]").length;
       if (current >= MAX_OPTIONS) {
-        showMessage(statusEl, "Maksimum 8 secenek eklenebilir.", "error");
+        showMessage(statusEl, "⚠️ Maksimum 8 secenek eklenebilir", "error");
         return;
       }
       optionsWrap.insertAdjacentHTML("beforeend", optionInputHtml(current));
@@ -299,8 +360,10 @@
     async function onImageSelected(file) {
       try {
         await handleImagePreview(file || null);
+        trackEvent("image_selected");
       } catch (error) {
-        showMessage(statusEl, error.message || "Gorsel okunamadi.", "error");
+        showMessage(statusEl, error.message || "🖼️ Gorsel okunamadi", "error");
+        trackEvent("image_error", { error: error.message });
       }
     }
 
@@ -309,27 +372,40 @@
 
     resetBtn.addEventListener("click", resetForm);
 
+    draftBtn.addEventListener("click", () => {
+      const state = captureFormState();
+      draft.save("question", state);
+      showMessage(statusEl, "✔️ Taslak kaydedildi", "success");
+      trackEvent("draft_saved");
+    });
+
     form.addEventListener("submit", async (event) => {
       event.preventDefault();
-      showMessage(statusEl, "Kaydediliyor...", "info");
+      showMessage(statusEl, "⏳ Kaydediliyor...", "info");
 
       try {
         const type = document.querySelector("#typeSelect").value;
         const payload = buildPayload(type);
         const created = await createQuestion(payload);
-        showMessage(statusEl, `Kayit tamamlandi. ID: ${created.id}`, "success");
+        showMessage(statusEl, `✅ Kayit tamamlandi. ID: ${created.id}`, "success");
+        trackEvent("question_created", { id: created.id, type });
 
         resetForm();
         await loadHierarchy();
       } catch (error) {
-        showMessage(statusEl, error.message || "Kayit basarisiz.", "error");
+        showMessage(statusEl, error.message || "❌ Kayit basarisiz", "error");
+        trackEvent("question_error", { error: error.message });
       }
     });
 
     init().catch((error) => {
-      showMessage(statusEl, error.message || "Sayfa baslatilamadi.", "error");
+      showMessage(statusEl, error.message || "❌ Sayfa baslatilamadi", "error");
     });
-    window.addEventListener("beforeunload", clearPreviewUrl);
+
+    window.addEventListener("beforeunload", () => {
+      clearPreviewUrl();
+      disableAutoSave();
+    });
   </script>
 </body>
 </html>

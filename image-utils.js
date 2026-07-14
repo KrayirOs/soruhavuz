@@ -48,6 +48,7 @@ export async function compressImage(file, options = {}) {
   }
 
   const maxWidth = Number(options.maxWidth || 1280);
+  const maxHeight = Number(options.maxHeight || 1280);
   const quality = Number(options.quality || 0.7);
   const mimeType = options.mimeType || "image/jpeg";
 
@@ -55,7 +56,10 @@ export async function compressImage(file, options = {}) {
 
   try {
     const original = getBitmapSize(bitmap);
-    const ratio = original.width > maxWidth ? maxWidth / original.width : 1;
+    const ratioWidth = original.width > maxWidth ? maxWidth / original.width : 1;
+    const ratioHeight = original.height > maxHeight ? maxHeight / original.height : 1;
+    const ratio = Math.min(ratioWidth, ratioHeight);
+
     const targetWidth = Math.max(1, Math.round(original.width * ratio));
     const targetHeight = Math.max(1, Math.round(original.height * ratio));
 
@@ -71,13 +75,17 @@ export async function compressImage(file, options = {}) {
     drawBitmap(ctx, bitmap, targetWidth, targetHeight);
 
     const blob = await new Promise((resolve, reject) => {
-      canvas.toBlob((result) => {
-        if (!result) {
-          reject(new Error("Image compression failed."));
-          return;
-        }
-        resolve(result);
-      }, mimeType, quality);
+      canvas.toBlob(
+        (result) => {
+          if (!result) {
+            reject(new Error("Image compression failed."));
+            return;
+          }
+          resolve(result);
+        },
+        mimeType,
+        quality
+      );
     });
 
     return {
@@ -90,7 +98,8 @@ export async function compressImage(file, options = {}) {
         width: targetWidth,
         height: targetHeight,
         mimeType: blob.type || mimeType,
-        quality
+        quality,
+        compressionPercent: Math.round(100 - (blob.size / file.size) * 100)
       }
     };
   } finally {
